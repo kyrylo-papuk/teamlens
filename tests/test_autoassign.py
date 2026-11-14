@@ -11,6 +11,7 @@ from teamlens.jira import FakeJira
 from teamlens.mcp_servers import jira_server
 from teamlens.people import LocalPeople
 from teamlens.seed import generate
+from teamlens.triage import Prediction
 
 C = generate()
 PAY = [e for e in C.employees if e.team == "PAY"]
@@ -94,3 +95,62 @@ async def test_auto_mode_assigns_by_itself_and_can_be_undone(tmp_path):
 
         assert (await auto.undo(MANAGER, second.key)).ok and (await jira.get(second.key)).assignee_id is None
         assert audit.verify() is None
+
+
+# --- triage: the kind of work decides who is asked first -----------------------------------------
+
+class Sure:
+    """A classifier that always answers the same."""
+    name = "stub"
+
+    def __init__(self, area: str, confidence: float) -> None:
+        self._answer = Prediction(area=area, confidence=confidence)
+
+    async def classify(self, titles):
+        return [self._answer for _ in titles]
+
+
+async def test_prefers_someone_whose_role_fits_the_work(tmp_path):
+    async with env(tmp_path) as (jira, box, audit, _):
+        issue = await jira.create("PAY", "Flaky test in the refund suite", story_points=1, in_sprint=True)
+        world = await box.world(MANAGER)
+        by_load = suggest(issue, world)
+        qa = next(x for x in world.overview.loads if x.role == "QA Engineer")
+        assert by_load.assignee_id != qa.employee_id  # by load alone it would go to someone else
+
+        fitted = suggest(issue, world, area=Prediction(area="qa", confidence=0.9))
+        assert fitted.assignee_id == qa.employee_id and "looks like qa work (90% sure)" in fitted.reason
+        assert fitted.area == "qa" and [c.fits_the_work for c in fitted.candidates if c.employee_id == qa.employee_id] == [True]
+
+        unsure = suggest(issue, world, area=Prediction(area="qa", confidence=0.3))
+        assert unsure.assignee_id == by_load.assignee_id and unsure.area == "qa"  # shown, but not acted on
+
+        auto = AutoAssigner(box, audit, tmp_path / "settings.json", Sure("qa", 0.9))
+        applied = await auto.assign(MANAGER, issue.key)
+        assert applied.assignee_id == qa.employee_id and audit.entries()[-1]["data"]["area"] == "qa"
+
+
+async def test_falls_back_to_load_when_no_specialist_has_room(tmp_path):
+    async with env(tmp_path) as (jira, box, _, _):
+        issue = await jira.create("PAY", "Flaky test in the refund suite", story_points=5, in_sprint=True)
+        world = await box.world(MANAGER)
+        qa = next(x for x in world.overview.loads if x.role == "QA Engineer")
+        s = suggest(issue, world, area=Prediction(area="qa", confidence=0.9))
+        assert s.assignee_id not in (None, qa.employee_id)
+        assert "No QA Engineer can take it without going over capacity" in s.reason and "lowest load in the team" in s.reason
+
+
+async def test_keyword_triage_is_a_usable_fallback():
+    from teamlens.triage import KeywordTriage, Resilient, load
+    titles = ["Deploy pipeline fails at the image push step", "Write tests for the refund flow", "zzz"]
+    got = await KeywordTriage().classify(titles)
+    assert [p.area for p in got[:2]] == ["devops", "qa"] and got[2].confidence == 0.0
+    assert load().name in ("keywords", "setfit")  # no key: a local classifier
+
+    class Down:
+        name = "down"
+
+        async def classify(self, titles):
+            raise ConnectionError("no network")
+
+    assert await Resilient(Down(), KeywordTriage()).classify(titles) == got  # a failing classifier never blocks triage

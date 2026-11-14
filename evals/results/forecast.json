@@ -1,0 +1,16 @@
+{
+ "fitted_on_sprints": 45,
+ "scored_on_sprints": 15,
+ "mean_abs_error_points": {
+  "regression": 0.97,
+  "average_velocity": 3.49
+ },
+ "share_inside_90_interval": 1.0,
+ "fit": {
+  "intercept": -8.115093431464985,
+  "per_capacity_point": 0.8893482348413345,
+  "per_committed_point": 0.18536385139879077,
+  "sigma": 2.50742062829584,
+  "sprints": 45
+ }
+}

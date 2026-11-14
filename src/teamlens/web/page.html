@@ -83,6 +83,13 @@
   .roledef .head button { font-size: 12px; padding: 2px 8px; }
   .rights { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; margin: 8px 0; font-size: 12px; }
   .rights label { display: flex; gap: 6px; align-items: baseline; }
+  .fbar { position: relative; height: 14px; background: var(--chip); border-radius: 7px; overflow: hidden; }
+  .fbar i { position: absolute; top: 0; left: 0; height: 100%; }
+  .fbar #fexp { background: var(--accent); opacity: .55; } .fbar #fdone { background: var(--ok); z-index: 1; }
+  .fbar b { position: absolute; top: 6px; height: 2px; background: var(--ink); z-index: 2; }
+  .flegend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .flegend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .flegend #fcommitted { margin-left: auto; }
   .entry .kind { font-weight: 600; } .entry .t { color: var(--muted); }
   .entry .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
@@ -95,6 +102,13 @@
 </header>
 <main>
   <div>
+    <section>
+      <h2>Sprint forecast <span class="tag" id="risk"></span></h2>
+      <div class="fbar"><i id="fdone"></i><i id="fexp"></i><b id="frange"></b></div>
+      <div class="flegend"><span><i style="background:var(--ok)"></i>done</span><span><i style="background:var(--accent)"></i>expected by the end</span>
+        <span><i style="background:var(--ink);height:2px"></i>90% interval</span><span id="fcommitted"></span></div>
+      <div class="meta" id="fsummary"></div>
+    </section>
     <section>
       <h2>Team <span class="count" id="today"></span></h2>
       <table>
@@ -111,7 +125,7 @@
         <span class="modes" id="modes"><button data-mode="suggest">Suggest</button><button data-mode="auto">Auto</button></span>
       </h2>
       <div class="meta" id="modeinfo" style="margin:-4px 0 8px"></div>
-      <div id="unowned"></div>
+      <div id="unowned"><div class="empty">Checking…</div></div>
       <div id="recent"></div>
       <div class="row"><input id="newsum" placeholder="New task for the team, added to the sprint"><select id="newpts">
         <option>1</option><option selected>2</option><option>3</option><option>5</option><option>8</option></select>
@@ -181,6 +195,12 @@ async function loadOverview() {
   issues = o.issues;
   names = Object.fromEntries(o.loads.map(x => [x.employee_id, x.name]));
   $("today").textContent = o.today;
+  const f = o.forecast, pct = v => (f.committed ? Math.min(100, 100 * v / f.committed) : 0) + "%";
+  $("risk").textContent = f.at_risk ? "at risk" : "on track"; $("risk").className = "tag " + (f.at_risk ? "bad" : "ok");
+  $("fdone").style.width = pct(f.done); $("fexp").style.width = pct(f.expected);
+  $("frange").style.left = pct(f.low); $("frange").style.width = pct(f.high - f.low);
+  $("fcommitted").textContent = f.committed + " points committed";
+  $("fsummary").textContent = f.summary;
   $("team").innerHTML = o.loads.map(x => {
     const av = x.availability, pct = x.load == null ? 0 : Math.round(x.load * 100);
     const color = pct > 150 ? "var(--bad)" : pct > 100 ? "var(--warn)" : "var(--ok)";
@@ -227,7 +247,8 @@ async function loadAuto() {
     ? `Auto: new sprint work gets an owner without asking${a.set_by ? ", switched on by " + a.set_by : ""}. Every assignment is explained and can be undone.`
     : "Suggest: the system proposes an owner; a person confirms.";
   $("nunowned").textContent = a.suggestions.length;
-  $("unowned").innerHTML = a.suggestions.map(s => `<div class="sug"><div><b>${esc(s.issue_key)}</b> · ${esc(s.summary)} · ${s.points} pts</div>
+  $("unowned").innerHTML = a.suggestions.map(s => `<div class="sug"><div><b>${esc(s.issue_key)}</b> · ${esc(s.summary)} · ${s.points} pts
+        ${s.area ? `<span class="tag ${s.area_confidence >= 0.5 ? "ok" : "warn"}" title="Kind of work, by ${esc(a.triage)}">${esc(s.area)}${s.area_confidence < 1 ? " · " + Math.round(s.area_confidence * 100) + "%" : ""}</span>` : ""}</div>
       ${s.assignee_id && a.can_configure ? `<button class="primary" data-act="assign" data-key="${esc(s.issue_key)}">Assign to ${esc(s.assignee_name)}</button>` : "<span></span>"}
       <div class="why">${esc(s.reason)}</div></div>`).join("") || '<div class="empty">Every sprint issue has an owner.</div>';
   $("recent").innerHTML = a.recent.map(r => `<div class="sug"><div><span class="tag ok">${r.by_system ? "auto" : "confirmed"}</span> <b>${esc(r.issue_key)}</b> → ${esc(r.assignee_name)}</div>

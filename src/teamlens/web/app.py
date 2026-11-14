@@ -38,6 +38,7 @@ from teamlens.jira_cloud import JiraCloud
 from teamlens.mcp_servers import jira_server
 from teamlens.people import A2APeople, LocalPeople
 from teamlens.seed import generate
+from teamlens.triage import Triage, load as load_triage
 
 PAGE = Path(__file__).with_name("page.html")
 
@@ -81,7 +82,8 @@ class RoleDefine(BaseModel):
     rights: list[str] = []
 
 
-def create_app(model: Model | None = None, fake: bool | None = None, audit_path: Path | None = None) -> FastAPI:
+def create_app(model: Model | None = None, fake: bool | None = None, audit_path: Path | None = None,
+               triage: Triage | None = None) -> FastAPI:
     s = Settings()
     fake = os.environ.get("TEAMLENS_FAKE") == "1" if fake is None else fake
 
@@ -111,7 +113,10 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                                             app.state.audit, c.today)
             app.state.source = "in-memory demo data" if fake else s.jira_base_url
             settings_path = audit_path.with_name("team_settings.json") if audit_path else Path("data/team_settings.json")
-            app.state.auto = AutoAssigner(app.state.box, app.state.audit, settings_path)
+            # Tests pass their own classifier or none; a real run uses the trained model if there is one.
+            sorter = triage or (None if model is not None else load_triage(s.anthropic_api_key))
+            app.state.triage = sorter.name if sorter else None
+            app.state.auto = AutoAssigner(app.state.box, app.state.audit, settings_path, sorter)
             app.state.manager = next(p.id for p in await people.team(s.jira_team_key) if p.role == "Engineering Manager")
 
             async def watch(seconds: float) -> None:
@@ -159,7 +164,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         return {"today": str(world.overview.today), "actor": world.actor.model_dump(), "rights": sorted(world.rights),
                 "loads": [x.model_dump(mode="json") for x in world.overview.loads],
                 "findings": [{**f.model_dump(), "name": names.get(f.employee_id)} for f in world.overview.findings],
-                "issues": issues, "backlog": backlog}
+                "issues": issues, "backlog": backlog, "forecast": app.state.box.forecast(world).model_dump()}
 
     def reply(thread: str, result) -> dict:
         u = result.usage
@@ -199,7 +204,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                   if e["kind"] == "auto_assign" and e["data"].get("assignee")
                   and getattr(world.issues.get(e["data"]["issue"]), "assignee_id", None) == e["data"]["assignee"]][:5]
         return {"mode": setting["mode"], "set_by": names.get(setting["set_by"]),
-                "can_configure": "autoassign.configure" in world.rights, "can_create": "issues.create" in world.rights,
+                "triage": app.state.triage, "can_configure": "autoassign.configure" in world.rights, "can_create": "issues.create" in world.rights,
                 "suggestions": [s.model_dump() for s in await auto.suggestions(actor)], "recent": recent}
 
     @app.post("/api/autoassign/mode")

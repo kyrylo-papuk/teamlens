@@ -15,6 +15,7 @@ from mcp import Client
 
 from teamlens.access import Access
 from teamlens.delivery.policy import Plan, Step, World
+from teamlens.forecast import Fit, Forecast, default_fit, forecast
 from teamlens.hrm import Person
 from teamlens.jira import STATUSES
 from teamlens.overview import build
@@ -27,6 +28,14 @@ OVERVIEW_TOOL = {
     "name": "team_overview",
     "description": "Your team right now: each person's open issues, sprint points against capacity, "
                    "availability, and detected problems. Call this first for any question about people or load.",
+    "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+}
+
+FORECAST_TOOL = {
+    "name": "sprint_forecast",
+    "description": "How many of the points committed for this sprint the team is expected to finish, with a 90% "
+                   "interval, from a regression fitted on past sprints. Use it for any question about whether the "
+                   "sprint will be finished. Never estimate this yourself.",
     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
 }
 
@@ -80,7 +89,12 @@ class Toolbox:
     def __init__(self, jira: Client, people: People, today: date, access: Access | None = None) -> None:
         self._jira, self._people, self._today = jira, people, today
         self.access = access or Access()  # without a store: the role each HR record implies
+        self._fit: Fit | None = None
         self._read_tools: list[dict] | None = None
+
+    def forecast(self, world: World) -> Forecast:
+        self._fit = self._fit or default_fit()
+        return forecast(world.overview, list(world.issues.values()), self._fit)
 
     async def definitions(self) -> list[dict]:
         """Tool list for the model. Stable order, so the prompt prefix stays cacheable."""
@@ -92,7 +106,7 @@ class Toolbox:
                 if t.annotations is not None and t.annotations.read_only_hint
             ]
         delegate = [PEOPLE_TOOL] if hasattr(self._people, "ask") else []  # only when People is another agent
-        return [OVERVIEW_TOOL, *self._read_tools, *delegate, PLAN_TOOL]
+        return [OVERVIEW_TOOL, FORECAST_TOOL, *self._read_tools, *delegate, PLAN_TOOL]
 
     async def _call_jira(self, name: str, arguments: dict):
         result = await self._jira.call_tool(name, arguments)
@@ -129,6 +143,8 @@ class Toolbox:
             findings = [{"kind": f.kind, "employee_id": f.employee_id, "issues": f.issue_keys, "detail": f.detail}
                         for f in overview.findings]
             return json.dumps({"today": str(overview.today), "people": people, "findings": findings}, ensure_ascii=False)
+        if name == FORECAST_TOOL["name"]:
+            return self.forecast(await self.world(actor_id)).model_dump_json()
         if name == PEOPLE_TOOL["name"] and hasattr(self._people, "ask"):
             try:
                 return await self._people.ask(arguments["question"])

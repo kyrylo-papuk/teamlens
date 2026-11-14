@@ -1,8 +1,9 @@
-"""Automatic assignment of sprint work that nobody owns. Plain code, no model.
+"""Automatic assignment of sprint work that nobody owns. The owner is picked by plain code.
 
 The choice has to be explainable to the person who gets the work and to an auditor, so it is a
 rule anyone can check by hand: among the people who are at work, pick the one who ends up
-with the lowest load. The explanation goes into the Jira issue and into the audit log.
+with the lowest load, preferring someone whose role fits the kind of work when triage is sure
+what kind it is. The explanation goes into the Jira issue and into the audit log.
 
 Acting without a person's approval is a setting of the team, not a default:
   suggest  the system proposes an owner and someone with the right to assign confirms it
@@ -26,6 +27,8 @@ from teamlens.delivery.audit import AuditLog
 from teamlens.delivery.policy import Step, World, check
 from teamlens.delivery.tools import Toolbox, ToolFailure
 from teamlens.seed import Issue
+from teamlens.triage import CONFIDENT, Prediction, Triage
+from teamlens.triage.dataset import AREA_ROLE
 
 AUTO_MAX_LOAD = 1.0
 SYSTEM_ACTOR = "autoassign"
@@ -35,6 +38,8 @@ Mode = Literal["suggest", "auto"]
 class Candidate(BaseModel):
     employee_id: str
     name: str
+    role: str
+    fits_the_work: bool = False  # their role matches the kind of work triage saw in the title
     points_after: int
     capacity: float
     load_after: float
@@ -48,6 +53,8 @@ class Suggestion(BaseModel):
     assignee_name: str | None
     reason: str
     candidates: list[Candidate]  # everyone considered, best first
+    area: str | None = None  # kind of work, from triage
+    area_confidence: float | None = None
 
 
 class Applied(BaseModel):
@@ -57,12 +64,15 @@ class Applied(BaseModel):
     detail: str
 
 
-def suggest(issue: Issue, world: World, already: dict[str, int] | None = None) -> Suggestion:
+def suggest(issue: Issue, world: World, already: dict[str, int] | None = None,
+            area: Prediction | None = None) -> Suggestion:
     """``already`` holds points handed out earlier in the same pass, so several issues spread out."""
     already = already or {}
     points = issue.story_points if issue.in_sprint else 0
+    wanted = AREA_ROLE[area.area] if area and area.confidence >= CONFIDENT else None
     considered = sorted(
-        (Candidate(employee_id=x.employee_id, name=x.name, capacity=x.capacity_points,
+        (Candidate(employee_id=x.employee_id, name=x.name, capacity=x.capacity_points, role=x.role,
+                   fits_the_work=x.role == wanted,
                    points_after=(after := x.sprint_points + already.get(x.employee_id, 0) + points),
                    load_after=round(after / x.capacity_points, 2))
          for x in world.overview.loads
@@ -70,21 +80,37 @@ def suggest(issue: Issue, world: World, already: dict[str, int] | None = None) -
          and x.role != "Engineering Manager"),
         key=lambda c: (c.load_after, c.points_after, c.employee_id))
     fits = [c for c in considered if c.load_after <= AUTO_MAX_LOAD]
-    base = {"issue_key": issue.key, "summary": issue.summary, "points": issue.story_points, "candidates": considered}
+    base = {"issue_key": issue.key, "summary": issue.summary, "points": issue.story_points, "candidates": considered,
+            "area": area.area if area else None, "area_confidence": area.confidence if area else None}
     if not fits:
         why = "nobody is at work" if not considered else \
               f"it would take everyone above {AUTO_MAX_LOAD:.0%} of capacity; the least loaded would be " \
               f"{considered[0].name} at {considered[0].load_after:.0%}"
         return Suggestion(**base, assignee_id=None, assignee_name=None, reason=f"No automatic owner: {why}.")
     best = fits[0]
-    return Suggestion(**base, assignee_id=best.employee_id, assignee_name=best.name,
-                      reason=f"{best.name} is at work and ends up with the lowest load in the team: "
-                             f"{best.points_after} of {best.capacity:g} points ({best.load_after:.0%}).")
+    load = f"{best.points_after} of {best.capacity:g} points ({best.load_after:.0%})"
+    reason = f"{best.name} is at work and ends up with the lowest load in the team: {load}."
+    if wanted:
+        # Only a classifier that reports a probability gets a percentage; Claude's answer is a plain label.
+        sure = f" ({area.confidence:.0%} sure)" if area.confidence < 1 else ""
+        kind = f"This looks like {area.area} work{sure}."
+        specialists = [c for c in fits if c.fits_the_work]
+        if specialists:
+            best = specialists[0]
+            load = f"{best.points_after} of {best.capacity:g} points ({best.load_after:.0%})"
+            reason = f"{kind} {best.name} is a {best.role} at work and ends up at {load}."
+        else:
+            reason = f"{kind} No {wanted} can take it without going over capacity, so it goes by load alone. {reason}"
+    return Suggestion(**base, assignee_id=best.employee_id, assignee_name=best.name, reason=reason)
 
 
 class AutoAssigner:
-    def __init__(self, box: Toolbox, audit: AuditLog, settings_path: Path) -> None:
-        self._box, self._audit, self._path = box, audit, settings_path
+    def __init__(self, box: Toolbox, audit: AuditLog, settings_path: Path, triage: Triage | None = None) -> None:
+        self._box, self._audit, self._path, self._triage = box, audit, settings_path, triage
+
+    async def _area(self, issue: Issue) -> Prediction | None:
+        """The kind of work, from triage. It only decides who is considered first, never whether a rule holds."""
+        return (await self._triage.classify([issue.summary]))[0] if self._triage else None
 
     # --- team setting -----------------------------------------------------------------------
 
@@ -120,7 +146,7 @@ class AutoAssigner:
         world = await self._box.world(actor_id)
         out, already = [], {}
         for issue in self.unowned(world):
-            s = suggest(issue, world, already)
+            s = suggest(issue, world, already, await self._area(issue))
             if s.assignee_id:
                 already[s.assignee_id] = already.get(s.assignee_id, 0) + issue.story_points
             out.append(s)
@@ -134,7 +160,7 @@ class AutoAssigner:
         issue = world.issues.get(issue_key)
         if issue is None or issue.assignee_id is not None or issue.status == "Done":
             return Applied(issue_key=issue_key, assignee_id=None, ok=False, detail=f"{issue_key} is not open, unowned work of this team.")
-        s = suggest(issue, world)
+        s = suggest(issue, world, area=await self._area(issue))
         if s.assignee_id is None:
             self._audit.record("auto_assign", SYSTEM_ACTOR if by_system else actor_id, "-", issue=issue_key,
                                assignee=None, reason=s.reason)
@@ -149,8 +175,8 @@ class AutoAssigner:
                 verdict.allowed, verdict.reason = False, f"Jira refused: {exc}"
         self._audit.record("auto_assign", SYSTEM_ACTOR if by_system else actor_id, "-", issue=issue_key,
                            assignee=s.assignee_id if verdict.allowed else None, on_behalf_of=actor_id,
-                           reason=s.reason if verdict.allowed else verdict.reason,
-                           candidates=[c.model_dump() for c in s.candidates])
+                           reason=s.reason if verdict.allowed else verdict.reason, area=s.area,
+                           area_confidence=s.area_confidence, candidates=[c.model_dump() for c in s.candidates])
         return Applied(issue_key=issue_key, assignee_id=s.assignee_id if verdict.allowed else None, ok=verdict.allowed,
                        detail=s.reason if verdict.allowed else verdict.reason)
 

@@ -1,0 +1,246 @@
+{
+ "test_titles": 40,
+ "setfit_selection": {
+  "chosen": {
+   "base_model": "sentence-transformers/all-MiniLM-L6-v2",
+   "titles_per_area": 8
+  },
+  "tried": [
+   {
+    "base_model": "sentence-transformers/paraphrase-MiniLM-L3-v2",
+    "titles_per_area": 8,
+    "validation_accuracy": 0.733,
+    "train_seconds": 20
+   },
+   {
+    "base_model": "sentence-transformers/paraphrase-MiniLM-L3-v2",
+    "titles_per_area": 16,
+    "validation_accuracy": 0.667,
+    "train_seconds": 69
+   },
+   {
+    "base_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "titles_per_area": 8,
+    "validation_accuracy": 0.867,
+    "train_seconds": 38
+   },
+   {
+    "base_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "titles_per_area": 16,
+    "validation_accuracy": 0.833,
+    "train_seconds": 133
+   },
+   {
+    "base_model": "BAAI/bge-small-en-v1.5",
+    "titles_per_area": 16,
+    "validation_accuracy": 0.833,
+    "train_seconds": 275
+   }
+  ]
+ },
+ "results": [
+  {
+   "classifier": "keywords",
+   "accuracy": 0.475,
+   "macro_f1": 0.473,
+   "ms_per_ticket": 0.2,
+   "usd_per_1000_tickets": 0.0,
+   "note": "",
+   "wrong": [
+    {
+     "title": "Store the original request payload for disputed payments",
+     "said": "mobile",
+     "is": "backend"
+    },
+    {
+     "title": "Bundle size grew by 400 kB after adding the charting library",
+     "said": "backend",
+     "is": "frontend"
+    },
+    {
+     "title": "Search input should debounce requests while the user types",
+     "said": "backend",
+     "is": "frontend"
+    },
+    {
+     "title": "Colour contrast of the secondary buttons fails accessibility checks",
+     "said": "backend",
+     "is": "frontend"
+    },
+    {
+     "title": "Stepper component shows the wrong step as active after a refresh",
+     "said": "backend",
+     "is": "frontend"
+    },
+    {
+     "title": "Add inline editing for the payment reference in the table",
+     "said": "backend",
+     "is": "frontend"
+    },
+    {
+     "title": "Toast notifications stack on top of each other and cannot be dismissed",
+     "said": "backend",
+     "is": "frontend"
+    },
+    {
+     "title": "Text is truncated when the system font size is set to large",
+     "said": "backend",
+     "is": "mobile"
+    },
+    {
+     "title": "Onboarding carousel cannot be skipped on foldable devices",
+     "said": "backend",
+     "is": "mobile"
+    },
+    {
+     "title": "Dynamic Island shows no progress for an ongoing transfer",
+     "said": "backend",
+     "is": "mobile"
+    },
+    {
+     "title": "Test the app against the slowest supported network profile",
+     "said": "mobile",
+     "is": "qa"
+    },
+    {
+     "title": "Check that every error path of the transfer wizard shows a message",
+     "said": "backend",
+     "is": "qa"
+    },
+    {
+     "title": "Compare results of the old and new reconciliation job on a month of data",
+     "said": "backend",
+     "is": "qa"
+    },
+    {
+     "title": "Add mutation testing to the fee calculation package",
+     "said": "backend",
+     "is": "qa"
+    },
+    {
+     "title": "Add tracing headers at the load balancer",
+     "said": "backend",
+     "is": "devops"
+    },
+    {
+     "title": "Nightly job to clean up unused preview environments",
+     "said": "backend",
+     "is": "devops"
+    },
+    {
+     "title": "Vulnerability scan of images should block the release on critical findings",
+     "said": "backend",
+     "is": "devops"
+    },
+    {
+     "title": "Move feature flags configuration into the deployment manifests",
+     "said": "backend",
+     "is": "devops"
+    },
+    {
+     "title": "Service mesh sidecar adds two hundred milliseconds to cold starts",
+     "said": "backend",
+     "is": "devops"
+    },
+    {
+     "title": "Cost report: storage for old build artefacts keeps growing",
+     "said": "backend",
+     "is": "devops"
+    },
+    {
+     "title": "Enable encryption at rest for the new message queue",
+     "said": "backend",
+     "is": "devops"
+    }
+   ]
+  },
+  {
+   "classifier": "setfit",
+   "accuracy": 0.7,
+   "macro_f1": 0.695,
+   "ms_per_ticket": 2.8,
+   "usd_per_1000_tickets": 0.0,
+   "note": "",
+   "wrong": [
+    {
+     "title": "Query for monthly turnover does a full table scan",
+     "said": "qa",
+     "is": "backend"
+    },
+    {
+     "title": "Bundle size grew by 400 kB after adding the charting library",
+     "said": "devops",
+     "is": "frontend"
+    },
+    {
+     "title": "Colour contrast of the secondary buttons fails accessibility checks",
+     "said": "mobile",
+     "is": "frontend"
+    },
+    {
+     "title": "Toast notifications stack on top of each other and cannot be dismissed",
+     "said": "mobile",
+     "is": "frontend"
+    },
+    {
+     "title": "Text is truncated when the system font size is set to large",
+     "said": "frontend",
+     "is": "mobile"
+    },
+    {
+     "title": "Offline queue for transfers loses items when the app is killed",
+     "said": "backend",
+     "is": "mobile"
+    },
+    {
+     "title": "Dynamic Island shows no progress for an ongoing transfer",
+     "said": "devops",
+     "is": "mobile"
+    },
+    {
+     "title": "Check that every error path of the transfer wizard shows a message",
+     "said": "backend",
+     "is": "qa"
+    },
+    {
+     "title": "Add tracing headers at the load balancer",
+     "said": "backend",
+     "is": "devops"
+    },
+    {
+     "title": "Vulnerability scan of images should block the release on critical findings",
+     "said": "qa",
+     "is": "devops"
+    },
+    {
+     "title": "Service mesh sidecar adds two hundred milliseconds to cold starts",
+     "said": "backend",
+     "is": "devops"
+    },
+    {
+     "title": "Enable encryption at rest for the new message queue",
+     "said": "backend",
+     "is": "devops"
+    }
+   ]
+  },
+  {
+   "classifier": "claude-haiku-5-5",
+   "accuracy": 1.0,
+   "macro_f1": 1.0,
+   "ms_per_ticket": 1412.4,
+   "usd_per_1000_tickets": 0.0434,
+   "note": "",
+   "wrong": []
+  },
+  {
+   "classifier": "setfit, then claude",
+   "accuracy": 1.0,
+   "macro_f1": 1.0,
+   "ms_per_ticket": 1274.0,
+   "usd_per_1000_tickets": 0.0391,
+   "note": "90% of tickets went to Claude (SetFit confidence below 0.5)",
+   "wrong": []
+  }
+ ]
+}
