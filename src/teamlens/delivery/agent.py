@@ -21,6 +21,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from pydantic import BaseModel, ValidationError
 
+from teamlens.access import RIGHTS
 from teamlens.delivery.audit import AuditLog
 from teamlens.delivery.model import Model, Usage
 from teamlens.delivery.policy import RULES, Step, check
@@ -33,6 +34,7 @@ SYSTEM = """You are TeamLens, a delivery assistant for an engineering team. You 
 talking to understand who is working on what, and you prepare changes in Jira for them.
 
 Today is {today}. You are talking to {name} ({employee_id}), {role} of team {team}.
+Their rights in this team: {rights}.
 
 How to work:
 - Get facts from the tools before answering. Start with team_overview for anything about people, load or risks.
@@ -123,11 +125,13 @@ class DeliveryAgent:
 
     async def _think(self, state: State) -> dict:
         try:
-            actor = (await self._box.world(state["actor_id"])).actor
+            world = await self._box.world(state["actor_id"])
+            actor = world.actor
         except ToolFailure as exc:
             return {"pending": [], "outcome": "failed", "answer": f"{exc} Nothing was changed."}
         system = SYSTEM.format(today=self._today, name=actor.name, employee_id=actor.id, role=actor.role,
-                               team=actor.team or "none", rules=RULES)
+                               team=actor.team or "none", rules=RULES,
+                               rights="; ".join(RIGHTS[r].lower() for r in RIGHTS if r in world.rights) or "none")
         reply = await self._model.respond(system, state["messages"], await self._box.definitions())
         usage = Usage(**state.get("usage", {})).plus(reply.usage)
         return {"messages": [{"role": "assistant", "content": reply.content}], "turns": state["turns"] + 1,

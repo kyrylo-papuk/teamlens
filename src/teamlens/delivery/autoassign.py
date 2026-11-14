@@ -21,6 +21,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from teamlens.access import RIGHTS
 from teamlens.delivery.audit import AuditLog
 from teamlens.delivery.policy import Step, World, check
 from teamlens.delivery.tools import Toolbox, ToolFailure
@@ -104,9 +105,9 @@ class AutoAssigner:
 
     @staticmethod
     def _require_assign_rights(world: World) -> None:
-        # The same rule the policy applies to an assignment; until roles land, that is the team's manager.
-        if world.actor.role != "Engineering Manager" or not world.actor.team:
-            raise PermissionError("Only the team's engineering manager can do this.")
+        if "autoassign.configure" not in world.rights:
+            raise PermissionError(f"{world.actor.name} does not have the right to do this: "
+                                  f"{RIGHTS['autoassign.configure'].lower()}.")
 
     # --- suggestions and assignment ---------------------------------------------------------
 

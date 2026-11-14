@@ -27,7 +27,9 @@ record at that line: `Availability` carries dates, and no type on the Delivery s
 | Only known callers reach the People agent | bearer token per calling agent, with scopes; the agent card is the only public route | `test_requests_need_a_token_and_the_right_scope` |
 | The Delivery model cannot change Jira | write tools are not in its tool list; it can only submit a plan | `test_model_is_never_offered_write_tools` |
 | Changes follow company rules | `delivery/policy.py`, plain code, run at proposal time and again before every step | `test_policy_rules`, `test_step_is_rechecked_when_the_world_changed_after_approval` |
-| A person approves every change, and only the requester can | `approve` node pauses the graph | `test_rejection_and_foreign_approver_change_nothing` |
+| Who may change what is decided by rights, not job titles; nobody can hand out more than they hold | `access.py`, plain code, no model anywhere near it | `test_nobody_can_hand_out_more_than_they_hold`, `test_a_granted_role_changes_what_the_policy_allows` |
+| A person approves every change the agent proposes, and only the requester can | `approve` node pauses the graph | `test_rejection_and_foreign_approver_change_nothing` |
+| The system assigns work on its own only where someone with the right switched that on; each assignment is explained, recorded and can be undone | `delivery/autoassign.py` | `test_auto_mode_assigns_by_itself_and_can_be_undone` |
 | Every decision is on record and tampering is visible | `delivery/audit.py`, hash-chained | `test_audit_chain_detects_tampering` |
 
 ## What is stored
@@ -36,8 +38,9 @@ record at that line: `Availability` carries dates, and no type on the Delivery s
 |---|---|---|---|
 | Jira | issues, plus a comment on every change the agent made: who asked and why | Internal | system of record for work |
 | HRM | employees, absences | up to Restricted | system of record for people; only the People agent's process opens it |
-| Audit log | request text, proposed plan, verdict of every rule, approval, each executed step, outcome, token usage | Confidential | append-only; each entry holds the hash of the previous one |
+| Audit log | request text, proposed plan, verdict of every rule, approval, each executed step, outcome, token usage; every automatic assignment with the candidates considered; every role defined, given or taken away | Confidential | append-only; each entry holds the hash of the previous one |
 | Conversation state | messages and tool results of a request, so a paused plan can resume | Confidential | holds the same minimised data the model saw; no Restricted data can be in it |
+| Roles and grants | the team's own roles, who was given which role, by whom and when | Confidential | changed only through `access.py`; every change is also in the audit log |
 | Model provider | prompts and outputs of each call | Confidential at most | Restricted data is never sent, so it cannot be retained there |
 
 ## Why two agents instead of one

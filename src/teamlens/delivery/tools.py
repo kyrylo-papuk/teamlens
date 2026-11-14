@@ -13,6 +13,7 @@ from datetime import date
 import httpx
 from mcp import Client
 
+from teamlens.access import Access
 from teamlens.delivery.policy import Plan, Step, World
 from teamlens.hrm import Person
 from teamlens.jira import STATUSES
@@ -76,8 +77,9 @@ class ToolFailure(Exception):
 
 
 class Toolbox:
-    def __init__(self, jira: Client, people: People, today: date) -> None:
+    def __init__(self, jira: Client, people: People, today: date, access: Access | None = None) -> None:
         self._jira, self._people, self._today = jira, people, today
+        self.access = access or Access()  # without a store: the role each HR record implies
         self._read_tools: list[dict] | None = None
 
     async def definitions(self) -> list[dict]:
@@ -112,7 +114,7 @@ class Toolbox:
         team = await self._people.team(actor.team) if actor.team else []
         availability = await self._people.availability([p.id for p in team])
         issues = [Issue(**i) for i in await self._call_jira("search_issues", {"project": actor.team})] if actor.team else []
-        return World(actor=actor, overview=build(team, availability, issues, self._today),
+        return World(actor=actor, rights=self.access.rights(actor), overview=build(team, availability, issues, self._today),
                      issues={i.key: i for i in issues})
 
     async def run(self, name: str, arguments: dict, actor_id: str) -> str:

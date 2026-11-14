@@ -71,6 +71,18 @@
   .sug .why { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
   .sug button { font-size: 12px; padding: 4px 10px; }
   input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; flex: 1; min-width: 160px; }
+  .member { padding: 8px 0; border-top: 1px solid var(--line); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .member .who2 { font-weight: 600; margin-right: 4px; }
+  .chip.role { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  .chip.base { color: var(--muted); }
+  .chip button { border: 0; background: none; padding: 0 0 0 4px; color: inherit; cursor: pointer; }
+  .member select, .roledef select { font-size: 12px; padding: 2px 6px; margin-left: auto; }
+  .roledef { padding: 8px 0; border-top: 1px solid var(--line); }
+  .roledef .head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .roledef .head b { margin-right: auto; }
+  .roledef .head button { font-size: 12px; padding: 2px 8px; }
+  .rights { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; margin: 8px 0; font-size: 12px; }
+  .rights label { display: flex; gap: 6px; align-items: baseline; }
   .entry .kind { font-weight: 600; } .entry .t { color: var(--muted); }
   .entry .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
@@ -122,6 +134,15 @@
     <section>
       <h2>Audit log <span class="tag ok" id="chain"></span></h2>
       <div class="audit" id="audit"></div>
+    </section>
+    <section>
+      <h2>Roles and rights</h2>
+      <div class="meta" id="myrights" style="margin:-4px 0 10px"></div>
+      <div id="members"></div>
+      <h2 style="margin-top:16px">Roles of this team</h2>
+      <div id="roles"></div>
+      <div id="roleform"></div>
+      <div class="meta" id="roleinfo"></div>
     </section>
   </div>
 </main>
@@ -191,6 +212,8 @@ async function loadAudit() {
     const d = e.data, detail = e.kind === "request" ? d.text : e.kind === "plan_proposed" ? (d.refused.length ? "refused: " + d.refused.join("; ") : d.plan.summary)
       : e.kind === "approval" ? (d.approved ? "approved" : "rejected") : e.kind === "step" ? d.result
       : e.kind === "auto_assign" ? `${d.issue} → ${d.assignee || "nobody"}: ${d.reason}` : e.kind === "autoassign_mode" ? `mode ${d.mode}`
+      : e.kind === "role_granted" ? `${d.role} → ${d.employee}` : e.kind === "role_revoked" ? `${d.role} taken from ${d.employee}`
+      : e.kind === "role_defined" ? `${d.role}: ${d.rights.join(", ")}` : e.kind === "role_deleted" ? d.role
       : e.kind === "auto_assign_undone" ? `${d.issue} unassigned` : e.kind === "issue_created" ? `${d.issue} ${d.summary}` : d.outcome;
     return `<div class="entry"><span class="t">${esc(e.at.slice(11, 19))}</span><span class="kind">${esc(e.kind)}</span>
       <span class="d" title="${esc(detail)}">${esc(e.actor)} · ${esc(detail)}</span></div>`;
@@ -210,9 +233,34 @@ async function loadAuto() {
   $("recent").innerHTML = a.recent.map(r => `<div class="sug"><div><span class="tag ok">${r.by_system ? "auto" : "confirmed"}</span> <b>${esc(r.issue_key)}</b> → ${esc(r.assignee_name)}</div>
       ${a.can_configure ? `<button data-act="undo" data-key="${esc(r.issue_key)}">Undo</button>` : "<span></span>"}
       <div class="why">${esc(r.reason)}</div></div>`).join("");
-  $("newadd").disabled = !a.can_configure;
+  $("newadd").disabled = !a.can_create;
 }
-const refresh = () => { loadOverview(); loadAuto(); loadAudit(); };
+async function loadRoles() {
+  const r = await api("/api/roles?actor=" + $("actor").value);
+  const canGive = r.mine.includes("roles.grant"), canDefine = r.mine.includes("roles.define");
+  $("myrights").textContent = "You may: " + (r.mine.map(x => r.catalogue[x].toLowerCase()).join("; ") || "nothing in this team") + ".";
+  $("members").innerHTML = r.members.map(m => {
+    const giveable = r.roles.filter(x => x.can_give && x.name !== m.base && !m.granted.includes(x.name));
+    return `<div class="member"><span class="who2">${esc(m.name)}</span>
+      <span class="chip base" title="From the HR record; cannot be changed here">${esc(m.base)}</span>
+      ${m.granted.map(g => `<span class="chip role">${esc(g)}${canGive ? `<button title="Take away" data-do="revoke" data-who="${esc(m.id)}" data-role="${esc(g)}">×</button>` : ""}</span>`).join("")}
+      ${giveable.length ? `<select data-who="${esc(m.id)}"><option value="">+ give a role</option>${giveable.map(x => `<option>${esc(x.name)}</option>`).join("")}</select>` : ""}</div>`;
+  }).join("");
+  $("roles").innerHTML = r.roles.map(x => `<div class="roledef"><div class="head"><b>${esc(x.name)}</b>
+      <span class="meta">${x.built_in ? "built in" : "this team's own"}</span>
+      ${!x.built_in && canDefine ? `<button class="danger" data-do="delete" data-role="${esc(x.name)}">Delete</button>` : ""}</div>
+      <div class="chips">${x.rights.map(k => `<span class="chip">${esc(r.catalogue[k])}</span>`).join("")}</div></div>`).join("");
+  $("roleform").innerHTML = !canDefine ? "" : `<div class="roledef"><div class="head"><b>New role</b></div>
+      <input id="rolename" placeholder="name, for example tech-lead">
+      <div class="rights">${r.mine.map(k => `<label><input type="checkbox" value="${esc(k)}" style="flex:none;min-width:0"> ${esc(r.catalogue[k])}</label>`).join("")}</div>
+      <button data-do="define">Create role</button></div>`;
+}
+async function roleAction(path, body) {
+  $("roleinfo").textContent = "";
+  try { await api("/api/roles/" + path, {actor: $("actor").value, ...body}); } catch (e) { $("roleinfo").textContent = e.message; }
+  refresh();
+}
+const refresh = () => { loadOverview(); loadAuto(); loadAudit(); loadRoles(); };
 async function act(what, issue_key) {
   try { const r = await api("/api/autoassign/" + what, {actor: $("actor").value, issue_key}); if (!r.ok) $("newinfo").textContent = r.detail; }
   catch (e) { $("newinfo").textContent = e.message; }
@@ -271,6 +319,13 @@ const decide = approved => run(() => api("/api/decide", {actor: $("actor").value
   $("actor").onchange = () => { $("result").innerHTML = ""; $("newinfo").textContent = ""; refresh(); };
   $("modes").onclick = e => { if (e.target.dataset.mode) setMode(e.target.dataset.mode); };
   $("newadd").onclick = addIssue;
+  $("members").onchange = e => { if (e.target.tagName === "SELECT" && e.target.value) roleAction("grant", {employee_id: e.target.dataset.who, role: e.target.value}); };
+  for (const id of ["members", "roles", "roleform"]) $(id).onclick = e => {
+    const d = e.target.dataset;
+    if (d.do === "revoke") roleAction("revoke", {employee_id: d.who, role: d.role});
+    if (d.do === "delete") roleAction("delete", {name: d.role});
+    if (d.do === "define") roleAction("define", {name: $("rolename").value, rights: [...document.querySelectorAll("#roleform input:checked")].map(x => x.value)});
+  };
   for (const id of ["unowned", "recent"]) $(id).onclick = e => { if (e.target.dataset.act) act(e.target.dataset.act, e.target.dataset.key); };
   $("send").onclick = send;
   $("text").onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); };

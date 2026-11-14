@@ -131,8 +131,8 @@ def _rule_breaks(before: dict[str, Issue], after: dict[str, Issue], changed: set
             if new.assignee_id is not None:
                 return ["violation"]
             continue
-        if new.status != old.status and new.status == "Done":
-            return ["violation"]
+        if new.status != old.status and new.status == "Done" and old.assignee_id != world.actor.id:
+            return ["violation"]  # only the owner closes their own work
         if new.assignee_id != old.assignee_id and new.assignee_id is not None:
             who = loads.get(new.assignee_id)
             if who is None or not who.availability.active or not who.availability.available_today:

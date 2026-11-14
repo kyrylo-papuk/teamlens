@@ -48,7 +48,6 @@ def test_question(tmp_path):
 
 def test_auto_assignment_through_the_api(tmp_path):
     with client(tmp_path) as http:
-        assert http.post("/api/issues", json={"actor": FREE, "summary": "Not allowed"}).status_code == 403
         made = http.post("/api/issues", json={"actor": MANAGER, "summary": "Payout bug", "points": 2}).json()
         assert made["applied"] == []  # suggest mode: created, nobody assigned yet
         state = http.get("/api/autoassign", params={"actor": MANAGER}).json()
@@ -66,3 +65,27 @@ def test_auto_assignment_through_the_api(tmp_path):
         assert state["suggestions"] == [] and {r["issue_key"] for r in state["recent"]} == {made["issue_key"], second["issue_key"]}
         assert http.post("/api/autoassign/undo", json={"actor": MANAGER, "issue_key": second["issue_key"]}).json()["ok"]
         assert http.get("/api/audit").json()["intact"]
+
+
+def test_roles_through_the_api(tmp_path):
+    with client(tmp_path) as http:
+        seen = http.get("/api/roles", params={"actor": MANAGER}).json()
+        assert [r["name"] for r in seen["roles"]] == ["manager", "engineer"] and "roles.define" in seen["mine"]
+        assert http.get("/api/roles", params={"actor": FREE}).json()["mine"] == sorted(["overview.view", "issues.take", "issues.move_own", "issues.create"])
+
+        lead = {"actor": MANAGER, "name": "tech-lead", "rights": ["issues.assign", "autoassign.configure"]}
+        assert http.post("/api/roles/define", json=lead).json() == {"ok": True}
+        assert http.post("/api/roles/define", json=lead).status_code == 400  # the name is taken
+        assert http.post("/api/roles/define", json={**lead, "actor": FREE, "name": "mine"}).status_code == 403
+        assert http.post("/api/roles/grant", json={"actor": FREE, "employee_id": FREE, "role": "manager"}).status_code == 403
+
+        assert http.post("/api/roles/grant", json={"actor": MANAGER, "employee_id": FREE, "role": "tech-lead"}).json() == {"ok": True}
+        member = next(m for m in http.get("/api/roles", params={"actor": MANAGER}).json()["members"] if m["id"] == FREE)
+        assert member["granted"] == ["tech-lead"] and "issues.assign" in member["rights"]
+        assert http.get("/api/autoassign", params={"actor": FREE}).json()["can_configure"]  # the role took effect
+
+        assert http.post("/api/roles/revoke", json={"actor": MANAGER, "employee_id": FREE, "role": "tech-lead"}).json() == {"ok": True}
+        assert not http.get("/api/autoassign", params={"actor": FREE}).json()["can_configure"]
+        assert http.post("/api/roles/delete", json={"actor": MANAGER, "name": "tech-lead"}).json() == {"ok": True}
+        kinds = [e["kind"] for e in http.get("/api/audit").json()["entries"]][::-1]
+        assert kinds == ["role_defined", "role_granted", "role_revoked", "role_deleted"]

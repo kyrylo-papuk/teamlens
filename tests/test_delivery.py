@@ -83,7 +83,7 @@ async def test_policy_counts_earlier_steps_towards_capacity(tmp_path):
 async def test_only_the_manager_can_change_issues(tmp_path):
     async with env(tmp_path) as (_, box, _, _):
         verdict = check([step(tool="assign_issue", issue_key=AWAY_ISSUE, assignee_id=FREE)], await box.world(FREE))[0]
-        assert verdict.rule == "actor_role"
+        assert verdict.rule == "right" and "reassign any issue" in verdict.reason
 
 
 # --- audit ------------------------------------------------------------------------------------
@@ -175,3 +175,45 @@ async def test_step_is_rechecked_when_the_world_changed_after_approval(tmp_path)
         assert result.outcome == "failed" and "Done and cannot be changed" in result.answer
         assert (await jira.get(AWAY_ISSUE)).assignee_id == AWAY
         assert json.dumps(audit.entries()[-2]["data"]).count("refused at execution time") == 1
+
+
+# --- rights decide who may change what --------------------------------------------------------
+
+async def test_engineer_takes_unowned_work_and_closes_their_own(tmp_path):
+    async with env(tmp_path) as (jira, box, _, agent):
+        world = await box.world(FREE)
+        unowned = next(i.key for i in world.issues.values() if i.assignee_id is None)
+        own = next(i.key for i in world.issues.values() if i.assignee_id == FREE and i.status != "Done")
+        theirs = next(i.key for i in world.issues.values() if i.assignee_id not in (None, FREE) and i.status != "Done")
+        allowed = [step(tool="assign_issue", issue_key=unowned, assignee_id=FREE),
+                   step(tool="transition_issue", issue_key=own, status="Done"),
+                   step(tool="create_issue", summary="Follow-up")]
+        assert all(v.allowed for v in check(allowed, world))
+        refused = {
+            "right": step(tool="assign_issue", issue_key=theirs, assignee_id=FREE),          # not theirs to take
+            "humans_close_work": step(tool="transition_issue", issue_key=theirs, status="Done"),
+        }
+        for rule, s in refused.items():
+            assert check([s], world)[0].rule == rule
+        assert check([step(tool="transition_issue", issue_key=theirs, status="To Do")], world)[0].rule == "right"
+
+        a, _ = agent(plan({"tool": "assign_issue", "issue_key": unowned, "assignee_id": FREE}))
+        await a.ask(FREE, "I'll take it", "t1")
+        assert (await a.decide("t1", True, FREE)).outcome == "executed"
+        assert (await jira.get(unowned)).assignee_id == FREE
+
+
+async def test_a_granted_role_changes_what_the_policy_allows(tmp_path):
+    async with env(tmp_path) as (_, box, _, _):
+        manager, engineer = (await box.world(MANAGER)).actor, (await box.world(FREE)).actor
+        world = await box.world(FREE)
+        theirs = next(i.key for i in world.issues.values() if i.assignee_id not in (None, FREE, AWAY) and i.status != "Done")
+        reassign = step(tool="assign_issue", issue_key=theirs, assignee_id=FREE)
+        assert check([reassign], world)[0].rule == "right"
+
+        box.access.define(manager, "tech-lead", ["issues.assign"])
+        box.access.grant(manager, engineer, "tech-lead")
+        assert check([reassign], await box.world(FREE))[0].allowed
+
+        box.access.revoke(manager, engineer, "tech-lead")
+        assert check([reassign], await box.world(FREE))[0].rule == "right"

@@ -24,6 +24,7 @@ from mcp import Client
 from pydantic import BaseModel
 
 from teamlens import live
+from teamlens.access import RIGHTS, Access
 from teamlens.config import Settings
 from teamlens.delivery.agent import DeliveryAgent
 from teamlens.delivery.audit import AuditLog
@@ -68,6 +69,18 @@ class NewIssue(BaseModel):
     points: int = 1
 
 
+class RoleGrant(BaseModel):
+    actor: str
+    employee_id: str
+    role: str
+
+
+class RoleDefine(BaseModel):
+    actor: str
+    name: str
+    rights: list[str] = []
+
+
 def create_app(model: Model | None = None, fake: bool | None = None, audit_path: Path | None = None) -> FastAPI:
     s = Settings()
     fake = os.environ.get("TEAMLENS_FAKE") == "1" if fake is None else fake
@@ -90,8 +103,10 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         async with Client(jira_server(jira)) as client:
             app.state.team = s.jira_team_key
             app.state.people = people
-            app.state.box = Toolbox(client, people, c.today)
             app.state.audit = AuditLog(audit_path or Path("data/audit.jsonl"))
+            access_path = audit_path.with_name("access.json") if audit_path else Path("data/access.json")
+            app.state.access = Access(access_path, audit=app.state.audit)
+            app.state.box = Toolbox(client, people, c.today, app.state.access)
             app.state.agent = DeliveryAgent(model or ClaudeModel(api_key=s.anthropic_api_key), app.state.box,
                                             app.state.audit, c.today)
             app.state.source = "in-memory demo data" if fake else s.jira_base_url
@@ -141,7 +156,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         issues = {k: {"summary": i.summary, "status": i.status, "points": i.story_points, "in_sprint": i.in_sprint}
                   for k, i in world.issues.items()}
         backlog = [k for k, i in world.issues.items() if i.assignee_id is None and i.status != "Done" and not i.in_sprint]
-        return {"today": str(world.overview.today), "actor": world.actor.model_dump(),
+        return {"today": str(world.overview.today), "actor": world.actor.model_dump(), "rights": sorted(world.rights),
                 "loads": [x.model_dump(mode="json") for x in world.overview.loads],
                 "findings": [{**f.model_dump(), "name": names.get(f.employee_id)} for f in world.overview.findings],
                 "issues": issues, "backlog": backlog}
@@ -168,6 +183,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             return await job
         except PermissionError as exc:
             raise HTTPException(403, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
         except ToolFailure as exc:
             raise HTTPException(503, str(exc)) from exc
 
@@ -182,7 +199,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                   if e["kind"] == "auto_assign" and e["data"].get("assignee")
                   and getattr(world.issues.get(e["data"]["issue"]), "assignee_id", None) == e["data"]["assignee"]][:5]
         return {"mode": setting["mode"], "set_by": names.get(setting["set_by"]),
-                "can_configure": world.actor.role == "Engineering Manager",
+                "can_configure": "autoassign.configure" in world.rights, "can_create": "issues.create" in world.rights,
                 "suggestions": [s.model_dump() for s in await auto.suggestions(actor)], "recent": recent}
 
     @app.post("/api/autoassign/mode")
@@ -211,6 +228,54 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         app.state.audit.record("issue_created", body.actor, "-", issue=issue.key, summary=issue.summary)
         applied = await app.state.auto.sweep(app.state.team, app.state.manager)
         return {"issue_key": issue.key, "applied": [a.model_dump() for a in applied]}
+
+    # --- roles and rights: buttons and plain code, never the model ---------------------------
+
+    async def person(employee_id: str):
+        found = await app.state.people.person(employee_id)
+        if found is None:
+            raise HTTPException(404, f"Unknown employee {employee_id}.")
+        return found
+
+    async def change_roles(job) -> dict:
+        async def run():
+            job()
+        await guarded(run())
+        return {"ok": True}
+
+    @app.get("/api/roles")
+    async def roles(actor: str) -> dict:
+        access, me = app.state.access, await person(actor)
+        team = me.team or app.state.team
+        mine = access.rights(me, team)
+        members = await app.state.people.team(team)
+        return {
+            "team": team, "catalogue": RIGHTS, "mine": sorted(mine),
+            "roles": [{**r.model_dump(), "can_give": "roles.grant" in mine and set(r.rights) <= mine}
+                      for r in access.roles(team) if r.name != "admin"],
+            "members": [{"id": p.id, "name": p.name, "base": access.base_role(p), "granted": access.granted(p, team),
+                         "rights": sorted(access.rights(p, team))} for p in members if p.active],
+        }
+
+    @app.post("/api/roles/grant")
+    async def grant_role(body: RoleGrant) -> dict:
+        me, target = await person(body.actor), await person(body.employee_id)
+        return await change_roles(lambda: app.state.access.grant(me, target, body.role))
+
+    @app.post("/api/roles/revoke")
+    async def revoke_role(body: RoleGrant) -> dict:
+        me, target = await person(body.actor), await person(body.employee_id)
+        return await change_roles(lambda: app.state.access.revoke(me, target, body.role))
+
+    @app.post("/api/roles/define")
+    async def define_role(body: RoleDefine) -> dict:
+        me = await person(body.actor)
+        return await change_roles(lambda: app.state.access.define(me, body.name.strip(), body.rights))
+
+    @app.post("/api/roles/delete")
+    async def delete_role(body: RoleDefine) -> dict:
+        me = await person(body.actor)
+        return await change_roles(lambda: app.state.access.delete(me, body.name))
 
     @app.get("/api/audit")
     async def audit(limit: int = 30) -> dict:

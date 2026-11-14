@@ -7,3 +7,4 @@ __pycache__/
 data/seed/
 data/audit.jsonl
 data/team_settings.json
+data/access.json
