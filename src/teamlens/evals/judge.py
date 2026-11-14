@@ -118,7 +118,7 @@ async def grade(data: dict, api_key: str, concurrency: int = 4) -> None:
 
 def label(data: dict) -> None:
     """Ask a person, case by case. The judge's verdict stays hidden so it cannot anchor the label."""
-    rows = [r for r in data["rows"] if _gradable(r) and "human" not in r]
+    rows = [r for r in data["rows"] if _gradable(r) and "human" not in r and r["run"] == 1]  # one answer per scenario
     print(f"{len(rows)} answers to label. y = correct, n = wrong, q = stop.\n")
     for n, r in enumerate(rows, start=1):
         print(f"--- {n}/{len(rows)}  {r['id']}\nQUESTION:  {r['question']}\nEXPECTED:  {r['reference']}\nANSWER:\n{r['answer']}\n")
