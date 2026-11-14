@@ -10,13 +10,14 @@ from __future__ import annotations
 import json
 from datetime import date
 
+import httpx
 from mcp import Client
 
 from teamlens.delivery.policy import Plan, Step, World
 from teamlens.hrm import Person
 from teamlens.jira import STATUSES
 from teamlens.overview import build
-from teamlens.people import People
+from teamlens.people import People, PeopleAgentError
 from teamlens.seed import Issue
 
 MAX_ROWS = 40  # issues shown per search; more than this and the model is told to narrow the filters
@@ -26,6 +27,15 @@ OVERVIEW_TOOL = {
     "description": "Your team right now: each person's open issues, sprint points against capacity, "
                    "availability, and detected problems. Call this first for any question about people or load.",
     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+}
+
+PEOPLE_TOOL = {
+    "name": "ask_people_agent",
+    "description": "Ask the People agent, which owns HR data, a staffing question in plain language: roles, weekly "
+                   "hours, who is away and when, also beyond the current sprint. It never shares reasons for "
+                   "absence, pay or contact details, so do not ask for them.",
+    "input_schema": {"type": "object", "properties": {"question": {"type": "string"}},
+                     "required": ["question"], "additionalProperties": False},
 }
 
 PLAN_TOOL = {
@@ -79,7 +89,8 @@ class Toolbox:
                 for t in sorted(listed, key=lambda t: t.name)
                 if t.annotations is not None and t.annotations.read_only_hint
             ]
-        return [OVERVIEW_TOOL, *self._read_tools, PLAN_TOOL]
+        delegate = [PEOPLE_TOOL] if hasattr(self._people, "ask") else []  # only when People is another agent
+        return [OVERVIEW_TOOL, *self._read_tools, *delegate, PLAN_TOOL]
 
     async def _call_jira(self, name: str, arguments: dict):
         result = await self._jira.call_tool(name, arguments)
@@ -89,6 +100,12 @@ class Toolbox:
         return payload["result"] if set(payload) == {"result"} else payload
 
     async def world(self, actor_id: str) -> World:
+        try:
+            return await self._world(actor_id)
+        except (PeopleAgentError, httpx.HTTPError) as exc:
+            raise ToolFailure(f"The People agent is unavailable: {exc}") from exc
+
+    async def _world(self, actor_id: str) -> World:
         actor = await self._people.person(actor_id)
         if actor is None:
             raise ToolFailure(f"Unknown employee {actor_id}.")
@@ -110,6 +127,11 @@ class Toolbox:
             findings = [{"kind": f.kind, "employee_id": f.employee_id, "issues": f.issue_keys, "detail": f.detail}
                         for f in overview.findings]
             return json.dumps({"today": str(overview.today), "people": people, "findings": findings}, ensure_ascii=False)
+        if name == PEOPLE_TOOL["name"] and hasattr(self._people, "ask"):
+            try:
+                return await self._people.ask(arguments["question"])
+            except (PeopleAgentError, httpx.HTTPError) as exc:
+                raise ToolFailure(f"The People agent is unavailable: {exc}") from exc
         if name not in {t["name"] for t in await self.definitions()} or name == PLAN_TOOL["name"]:
             raise ToolFailure(f"Tool '{name}' is not available. To change Jira, use propose_plan.")
         data = await self._call_jira(name, arguments)

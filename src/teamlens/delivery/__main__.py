@@ -3,6 +3,8 @@
   python -m teamlens.delivery "Who is overloaded?"            real Jira, real Claude
   python -m teamlens.delivery --fake "Who is overloaded?"     in-memory Jira (team PAY of the fictional company)
   python -m teamlens.delivery --as E003 "Reassign PAY-1"      ask as another employee
+  python -m teamlens.delivery --a2a "..."                     people data from the People agent (start it first:
+                                                              python -m teamlens.people_agent)
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import sys
 import uuid
 from pathlib import Path
 
+import httpx
 from mcp import Client
 
 from teamlens import live
@@ -25,7 +28,7 @@ from teamlens.hrm import Hrm
 from teamlens.jira import FakeJira
 from teamlens.jira_cloud import JiraCloud
 from teamlens.mcp_servers import jira_server
-from teamlens.people import LocalPeople
+from teamlens.people import A2APeople, LocalPeople
 from teamlens.seed import generate
 
 
@@ -35,6 +38,7 @@ async def main() -> None:
     parser.add_argument("--fake", action="store_true")
     parser.add_argument("--as", dest="actor")
     parser.add_argument("--yes", action="store_true", help="approve the plan without asking")
+    parser.add_argument("--a2a", action="store_true", help="get people data from the People agent over A2A")
     args = parser.parse_args()
     s = Settings()
 
@@ -44,8 +48,13 @@ async def main() -> None:
     else:
         c, users = live.company(), live.load_users()
         jira = JiraCloud(s, users)
-    hrm = Hrm(c.employees, c.absences)
-    people = LocalPeople(hrm, c.today, c.sprint_start, c.sprint_end, only=set(users) if users else None)
+    only, http = (set(users) if users else None), None
+    if args.a2a:
+        http = httpx.AsyncClient(base_url=s.people_agent_url, timeout=120,
+                                 headers={"Authorization": f"Bearer {s.people_agent_token}"})
+        people = A2APeople(http, c.today, c.sprint_start, c.sprint_end, only=only)
+    else:
+        people = LocalPeople(Hrm(c.employees, c.absences), c.today, c.sprint_start, c.sprint_end, only=only)
     manager = next(e.id for e in c.employees if e.team == s.jira_team_key and e.role == "Engineering Manager")
     actor, thread = args.actor or manager, uuid.uuid4().hex[:8]
 
@@ -68,6 +77,8 @@ async def main() -> None:
               f"${u.usd:.4f}; audit chain {'intact' if audit.verify() is None else 'BROKEN'})")
     if not args.fake:
         await jira.aclose()
+    if http:
+        await http.aclose()
 
 
 if __name__ == "__main__":

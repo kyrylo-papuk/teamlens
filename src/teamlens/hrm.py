@@ -29,6 +29,7 @@ class Availability(BaseModel):
     active: bool
     available_today: bool
     unavailable_until: date | None  # last day away, if away today
+    away: list[tuple[date, date]] = []  # time away that overlaps the period: dates only, never the reason
     working_days: int  # days the person can work in the period
     period_working_days: int  # working days in the period for a person with no absences
 
@@ -60,6 +61,7 @@ class Hrm:
             active=e.status == "active",
             available_today=e.status == "active" and not away_now,
             unavailable_until=max(a.end for a in away_now) if away_now else None,
+            away=sorted((a.start, a.end) for a in mine if a.start <= end and a.end >= start),
             working_days=sum(1 for d in period if not any(a.start <= d <= a.end for a in mine)),
             period_working_days=len(period),
         )

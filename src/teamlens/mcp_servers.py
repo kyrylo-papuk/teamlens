@@ -90,9 +90,9 @@ def hrm_server(hrm: Hrm, today: date, period_start: date, period_end: date) -> M
         return hrm.people(team)
 
     @server.tool(annotations=READ)
-    async def get_availability(employee_id: str) -> Availability:
-        """Whether a person can work in the current sprint and until when they are away. No reason."""
-        return hrm.availability(employee_id, period_start, period_end, today)
+    async def get_availability(employee_id: str, start: date | None = None, end: date | None = None) -> Availability:
+        """Whether a person can work and when they are away, for a period (default: the current sprint). No reason."""
+        return hrm.availability(employee_id, start or period_start, end or period_end, today)
 
     @server.tool(annotations=READ, meta={"data_class": "restricted"})
     async def get_absence_records(employee_id: str) -> list[Absence]:

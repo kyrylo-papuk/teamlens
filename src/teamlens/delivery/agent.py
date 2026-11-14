@@ -115,7 +115,10 @@ class DeliveryAgent:
     # --- nodes ------------------------------------------------------------------------------
 
     async def _think(self, state: State) -> dict:
-        actor = (await self._box.world(state["actor_id"])).actor
+        try:
+            actor = (await self._box.world(state["actor_id"])).actor
+        except ToolFailure as exc:
+            return {"pending": [], "outcome": "failed", "answer": f"{exc} Nothing was changed."}
         system = SYSTEM.format(today=self._today, name=actor.name, employee_id=actor.id, role=actor.role,
                                team=actor.team or "none")
         reply = await self._model.respond(system, state["messages"], await self._box.definitions())
@@ -126,7 +129,7 @@ class DeliveryAgent:
     @staticmethod
     def _after_think(state: State) -> str:
         names = [c["name"] for c in state["pending"]]
-        if not names or state["turns"] >= MAX_TURNS:
+        if state.get("outcome") or not names or state["turns"] >= MAX_TURNS:
             return "finish"
         return "review" if PLAN_TOOL["name"] in names else "tools"
 
@@ -152,8 +155,8 @@ class DeliveryAgent:
             verdicts = check(plan.steps, await self._box.world(actor_id))
             refused = [f"Step {n} ({s.tool} {s.issue_key or ''}): {v.reason}"
                        for n, (s, v) in enumerate(zip(plan.steps, verdicts), start=1) if not v.allowed]
-        except (ValidationError, ValueError) as exc:
-            plan, verdicts, refused = None, [], [f"The plan is not valid: {exc}"]
+        except (ValidationError, ValueError, ToolFailure) as exc:
+            plan, verdicts, refused = None, [], [f"The plan could not be checked: {exc}"]
         self._audit.record("plan_proposed", actor_id, thread, plan=proposal["input"],
                            verdicts=[v.model_dump() for v in verdicts], refused=refused)
 
@@ -183,14 +186,14 @@ class DeliveryAgent:
         """One step per pass, so every applied change is checkpointed before the next one starts."""
         thread, actor_id, plan = config["configurable"]["thread_id"], state["actor_id"], state["plan"]
         step = Step(**plan["steps"][state["cursor"]])
-        world = await self._box.world(actor_id)
-        verdict = check([step], world)[0]  # Jira or availability may have changed since approval
-        error = None if verdict.allowed else f"refused at execution time: {verdict.reason}"
-        if error is None:
-            try:
+        try:
+            world = await self._box.world(actor_id)
+            verdict = check([step], world)[0]  # Jira or availability may have changed since approval
+            error = None if verdict.allowed else f"refused at execution time: {verdict.reason}"
+            if error is None:
                 outcome = await self._box.execute(step, world.actor)
-            except ToolFailure as exc:
-                error = f"Jira refused: {exc}"
+        except ToolFailure as exc:
+            error = f"could not be applied: {exc}"
         self._audit.record("step", actor_id, thread, step=step.model_dump(), result=error or outcome)
 
         done = state["done"] + ([outcome] if error is None else [])
