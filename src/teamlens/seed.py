@@ -66,6 +66,8 @@ class Issue(BaseModel):
 
 class Company(BaseModel):
     today: date
+    sprint_start: date = SPRINT_START
+    sprint_end: date = SPRINT_END
     employees: list[Employee]
     absences: list[Absence]
     issues: list[Issue]
@@ -136,8 +138,10 @@ def generate(seed: int = 7) -> Company:
         for e in team:
             if e is idle:
                 continue
-            for _ in range(rng.randrange(2, 4)):
-                issue(key, e, rng.choice(["To Do", "In Progress", "In Review", "Done"]), rng.choice([1, 2, 3]))
+            part_time = e.weekly_hours < 32  # part-timers get a load that fits their hours
+            for n in range(2 if part_time else rng.randrange(2, 4)):
+                status = "In Progress" if n == 0 else rng.choice(["To Do", "In Progress", "In Review", "Done"])
+                issue(key, e, status, rng.choice([1, 2] if part_time else [1, 2, 3]))
         for _ in range(6):  # backlog, unassigned
             issue(key, None, "To Do", rng.choice([2, 3, 5]), in_sprint=False)
 
