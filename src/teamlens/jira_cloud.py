@@ -161,7 +161,15 @@ class JiraCloud:
                "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}]}
         await self._call("POST", f"/rest/api/3/issue/{key}/comment", json={"body": doc})
 
-    async def create(self, project, summary, type="Task", story_points=1, assignee_id=None) -> Issue:
+    async def _active_sprint(self) -> int:
+        boards = await self._call("GET", "/rest/agile/1.0/board", params={"projectKeyOrId": self._project})
+        board = boards["values"][0]["id"]
+        sprints = await self._call("GET", f"/rest/agile/1.0/board/{board}/sprint", params={"state": "active"})
+        if not sprints["values"]:
+            raise JiraError("There is no active sprint.")
+        return sprints["values"][0]["id"]
+
+    async def create(self, project, summary, type="Task", story_points=1, assignee_id=None, in_sprint=False) -> Issue:
         await self._setup()
         if project != self._team:
             raise JiraError(f"Project {project} does not exist.")
@@ -171,6 +179,9 @@ class JiraCloud:
         if assignee_id:
             fields["assignee"] = {"accountId": self._account_id(assignee_id)}
         created = await self._call("POST", "/rest/api/3/issue", json={"fields": fields})
+        if in_sprint:
+            await self._call("POST", f"/rest/agile/1.0/sprint/{await self._active_sprint()}/issue",
+                             json={"issues": [created["key"]]})
         return await self.get(created["key"])
 
     async def delete(self, key: str) -> None:

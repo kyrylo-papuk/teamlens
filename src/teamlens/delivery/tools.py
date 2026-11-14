@@ -142,6 +142,10 @@ class Toolbox:
                               ensure_ascii=False)
         return json.dumps(_brief(data) if "key" in data else data, ensure_ascii=False)
 
+    async def create_in_sprint(self, team: str, summary: str, story_points: int) -> Issue:
+        return Issue(**await self._call_jira("create_issue", {"project": team, "summary": summary,
+                                                              "story_points": story_points, "in_sprint": True}))
+
     async def execute(self, step: Step, actor: Person) -> str:
         """Apply one approved step in Jira and leave a comment saying who asked and why."""
         note = f"[TeamLens] Changed on behalf of {actor.name}. Reason: {step.reason}"

@@ -25,7 +25,7 @@ class Jira(Protocol):
     async def transition(self, key: str, status: str) -> Issue: ...
     async def comment(self, key: str, text: str) -> None: ...
     async def create(self, project: str, summary: str, type: str = "Task", story_points: int = 1,
-                     assignee_id: str | None = None) -> Issue: ...
+                     assignee_id: str | None = None, in_sprint: bool = False) -> Issue: ...
 
 
 class FakeJira:
@@ -64,12 +64,12 @@ class FakeJira:
         await self.get(key)
         self.comments.setdefault(key, []).append(text)
 
-    async def create(self, project, summary, type="Task", story_points=1, assignee_id=None) -> Issue:
+    async def create(self, project, summary, type="Task", story_points=1, assignee_id=None, in_sprint=False) -> Issue:
         numbers = [int(k.split("-")[1]) for k, i in self._issues.items() if i.project == project]
         if not numbers:
             raise JiraError(f"Project {project} does not exist.")
         issue = Issue(key=f"{project}-{max(numbers) + 1}", project=project, summary=summary, type=type,
-                      status="To Do", assignee_id=assignee_id, story_points=story_points, in_sprint=False,
+                      status="To Do", assignee_id=assignee_id, story_points=story_points, in_sprint=in_sprint,
                       created=self._today, updated=self._today)
         self._issues[issue.key] = issue
         return issue

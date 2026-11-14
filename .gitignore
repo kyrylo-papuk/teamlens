@@ -6,3 +6,4 @@ __pycache__/
 *.egg-info/
 data/seed/
 data/audit.jsonl
+data/team_settings.json

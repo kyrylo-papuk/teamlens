@@ -31,7 +31,7 @@ class PersonLoad(BaseModel):
 
 
 class Finding(BaseModel):
-    kind: str  # assigned_while_absent | assigned_to_terminated | overloaded | idle | stale_in_progress
+    kind: str  # assigned_while_absent | assigned_to_terminated | overloaded | idle | stale_in_progress | unowned_in_sprint
     employee_id: str | None
     issue_keys: list[str]
     detail: str
@@ -82,6 +82,9 @@ def build(people: list[Person], availability: dict[str, Availability], issues: l
         if i.project in team_keys and i.status in ("In Progress", "In Review") and age >= STALE_DAYS:
             findings.append(Finding(kind="stale_in_progress", employee_id=i.assignee_id, issue_keys=[i.key],
                                     detail=f"{i.key} is '{i.status}' with no update for {age} days."))
+        if i.project in team_keys and i.in_sprint and i.assignee_id is None and i.status != "Done":
+            findings.append(Finding(kind="unowned_in_sprint", employee_id=None, issue_keys=[i.key],
+                                    detail=f"{i.key} is in the sprint but nobody owns it."))
     return Overview(today=today, loads=loads, findings=findings)
 
 

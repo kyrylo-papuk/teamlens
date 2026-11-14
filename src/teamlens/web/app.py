@@ -10,6 +10,8 @@ different people see and may do different things. A real deployment puts SSO in 
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
@@ -25,7 +27,9 @@ from teamlens import live
 from teamlens.config import Settings
 from teamlens.delivery.agent import DeliveryAgent
 from teamlens.delivery.audit import AuditLog
+from teamlens.delivery.autoassign import AutoAssigner, Mode
 from teamlens.delivery.model import ClaudeModel, Model
+from teamlens.delivery.policy import Step, check
 from teamlens.delivery.tools import Toolbox, ToolFailure
 from teamlens.hrm import Hrm
 from teamlens.jira import FakeJira
@@ -46,6 +50,22 @@ class Decide(BaseModel):
     actor: str
     thread: str
     approved: bool
+
+
+class SetMode(BaseModel):
+    actor: str
+    mode: Mode
+
+
+class OnIssue(BaseModel):
+    actor: str
+    issue_key: str
+
+
+class NewIssue(BaseModel):
+    actor: str
+    summary: str
+    points: int = 1
 
 
 def create_app(model: Model | None = None, fake: bool | None = None, audit_path: Path | None = None) -> FastAPI:
@@ -75,7 +95,24 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             app.state.agent = DeliveryAgent(model or ClaudeModel(api_key=s.anthropic_api_key), app.state.box,
                                             app.state.audit, c.today)
             app.state.source = "in-memory demo data" if fake else s.jira_base_url
+            settings_path = audit_path.with_name("team_settings.json") if audit_path else Path("data/team_settings.json")
+            app.state.auto = AutoAssigner(app.state.box, app.state.audit, settings_path)
+            app.state.manager = next(p.id for p in await people.team(s.jira_team_key) if p.role == "Engineering Manager")
+
+            async def watch(seconds: float) -> None:
+                """Auto mode also covers issues created directly in Jira: look for unowned sprint work on a timer."""
+                while True:
+                    await asyncio.sleep(seconds)
+                    try:
+                        await app.state.auto.sweep(app.state.team, app.state.manager)
+                    except Exception:  # the watcher must survive a bad pass
+                        logging.getLogger("teamlens").exception("auto-assignment pass failed")
+
+            seconds = float(os.environ.get("TEAMLENS_AUTOASSIGN_SECONDS", "0" if fake else "30"))
+            watcher = asyncio.create_task(watch(seconds)) if seconds > 0 else None
             yield
+            if watcher:
+                watcher.cancel()
         if http:
             await http.aclose()
         if not fake:
@@ -103,7 +140,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         names = {x.employee_id: x.name for x in world.overview.loads}
         issues = {k: {"summary": i.summary, "status": i.status, "points": i.story_points, "in_sprint": i.in_sprint}
                   for k, i in world.issues.items()}
-        backlog = [k for k, i in world.issues.items() if i.assignee_id is None and i.status != "Done"]
+        backlog = [k for k, i in world.issues.items() if i.assignee_id is None and i.status != "Done" and not i.in_sprint]
         return {"today": str(world.overview.today), "actor": world.actor.model_dump(),
                 "loads": [x.model_dump(mode="json") for x in world.overview.loads],
                 "findings": [{**f.model_dump(), "name": names.get(f.employee_id)} for f in world.overview.findings],
@@ -123,6 +160,57 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
     @app.post("/api/decide")
     async def decide(body: Decide) -> dict:
         return reply(body.thread, await app.state.agent.decide(body.thread, body.approved, body.actor))
+
+    # --- automatic assignment: plain code, no model ------------------------------------------
+
+    async def guarded(job):
+        try:
+            return await job
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except ToolFailure as exc:
+            raise HTTPException(503, str(exc)) from exc
+
+    @app.get("/api/autoassign")
+    async def autoassign(actor: str) -> dict:
+        auto, world = app.state.auto, await guarded(app.state.box.world(actor))
+        setting = auto.setting(app.state.team)
+        names = {x.employee_id: x.name for x in world.overview.loads}
+        recent = [{"issue_key": e["data"]["issue"], "assignee_name": names.get(e["data"]["assignee"]),
+                   "by_system": e["actor"] == "autoassign", "reason": e["data"]["reason"]}
+                  for e in reversed(app.state.audit.entries())
+                  if e["kind"] == "auto_assign" and e["data"].get("assignee")
+                  and getattr(world.issues.get(e["data"]["issue"]), "assignee_id", None) == e["data"]["assignee"]][:5]
+        return {"mode": setting["mode"], "set_by": names.get(setting["set_by"]),
+                "can_configure": world.actor.role == "Engineering Manager",
+                "suggestions": [s.model_dump() for s in await auto.suggestions(actor)], "recent": recent}
+
+    @app.post("/api/autoassign/mode")
+    async def set_mode(body: SetMode) -> dict:
+        setting = await guarded(app.state.auto.set_mode(body.actor, body.mode))
+        applied = await app.state.auto.sweep(app.state.team, app.state.manager)
+        return {"mode": setting["mode"], "applied": [a.model_dump() for a in applied]}
+
+    @app.post("/api/autoassign/assign")
+    async def assign(body: OnIssue) -> dict:
+        return (await guarded(app.state.auto.assign(body.actor, body.issue_key))).model_dump()
+
+    @app.post("/api/autoassign/undo")
+    async def undo(body: OnIssue) -> dict:
+        return (await guarded(app.state.auto.undo(body.actor, body.issue_key))).model_dump()
+
+    @app.post("/api/issues")
+    async def new_issue(body: NewIssue) -> dict:
+        """A task lands on the team: created in the sprint with no owner. In auto mode it gets one at once."""
+        world = await guarded(app.state.box.world(body.actor))
+        verdict = check([Step(tool="create_issue", summary=body.summary, reason="created from the page")], world)[0]
+        if not verdict.allowed:
+            raise HTTPException(403, verdict.reason)
+        issue = await guarded(app.state.box.create_in_sprint(world.actor.team, body.summary.strip(),
+                                                             max(0, min(body.points, 13))))
+        app.state.audit.record("issue_created", body.actor, "-", issue=issue.key, summary=issue.summary)
+        applied = await app.state.auto.sweep(app.state.team, app.state.manager)
+        return {"issue_key": issue.key, "applied": [a.model_dump() for a in applied]}
 
     @app.get("/api/audit")
     async def audit(limit: int = 30) -> dict:

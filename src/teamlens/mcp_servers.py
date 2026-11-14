@@ -73,9 +73,9 @@ def jira_server(jira: Jira) -> MCPServer:
     @server.tool(annotations=WRITE)
     @_expected
     async def create_issue(project: str, summary: str, type: str = "Task", story_points: int = 1,
-                           assignee_id: str | None = None) -> Issue:
-        """Create an issue in the backlog of a project."""
-        return await jira.create(project, summary, type, story_points, assignee_id)
+                           assignee_id: str | None = None, in_sprint: bool = False) -> Issue:
+        """Create an issue in the backlog of a project, or straight in the active sprint."""
+        return await jira.create(project, summary, type, story_points, assignee_id, in_sprint)
 
     return server
 

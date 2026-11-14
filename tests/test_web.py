@@ -44,3 +44,25 @@ def test_question(tmp_path):
     with client(tmp_path, say("Nobody is overloaded.")) as http:
         r = http.post("/api/ask", json={"actor": MANAGER, "text": "Anyone overloaded?"}).json()
         assert r["outcome"] == "answered" and r["answer"] == "Nobody is overloaded."
+
+
+def test_auto_assignment_through_the_api(tmp_path):
+    with client(tmp_path) as http:
+        assert http.post("/api/issues", json={"actor": FREE, "summary": "Not allowed"}).status_code == 403
+        made = http.post("/api/issues", json={"actor": MANAGER, "summary": "Payout bug", "points": 2}).json()
+        assert made["applied"] == []  # suggest mode: created, nobody assigned yet
+        state = http.get("/api/autoassign", params={"actor": MANAGER}).json()
+        assert state["mode"] == "suggest" and state["can_configure"]
+        assert state["suggestions"][0]["issue_key"] == made["issue_key"] and state["suggestions"][0]["assignee_id"]
+        assert not http.get("/api/autoassign", params={"actor": FREE}).json()["can_configure"]
+        assert http.post("/api/autoassign/mode", json={"actor": FREE, "mode": "auto"}).status_code == 403
+
+        switched = http.post("/api/autoassign/mode", json={"actor": MANAGER, "mode": "auto"}).json()
+        assert switched["mode"] == "auto" and switched["applied"][0]["ok"]  # the waiting issue got an owner at once
+        second = http.post("/api/issues", json={"actor": MANAGER, "summary": "Another one", "points": 1}).json()
+        assert second["applied"][0]["ok"] and second["applied"][0]["issue_key"] == second["issue_key"]
+
+        state = http.get("/api/autoassign", params={"actor": MANAGER}).json()
+        assert state["suggestions"] == [] and {r["issue_key"] for r in state["recent"]} == {made["issue_key"], second["issue_key"]}
+        assert http.post("/api/autoassign/undo", json={"actor": MANAGER, "issue_key": second["issue_key"]}).json()["ok"]
+        assert http.get("/api/audit").json()["intact"]

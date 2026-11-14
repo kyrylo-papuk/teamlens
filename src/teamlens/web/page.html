@@ -64,6 +64,13 @@
   .audit { max-height: 340px; overflow-y: auto; }
   .entry { display: grid; grid-template-columns: 58px 92px 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line);
            font-size: 12px; }
+  .modes { margin-left: auto; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .modes button { border: 0; border-radius: 0; padding: 3px 12px; font-size: 12px; }
+  .modes button.on { background: var(--accent); color: #fff; }
+  .sug { padding: 10px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+  .sug .why { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+  .sug button { font-size: 12px; padding: 4px 10px; }
+  input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; flex: 1; min-width: 160px; }
   .entry .kind { font-weight: 600; } .entry .t { color: var(--muted); }
   .entry .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
@@ -86,6 +93,18 @@
     <section>
       <h2>Problems found <span class="count" id="nfind">0</span></h2>
       <div id="findings"></div>
+    </section>
+    <section>
+      <h2>Sprint work without an owner <span class="count" id="nunowned">0</span>
+        <span class="modes" id="modes"><button data-mode="suggest">Suggest</button><button data-mode="auto">Auto</button></span>
+      </h2>
+      <div class="meta" id="modeinfo" style="margin:-4px 0 8px"></div>
+      <div id="unowned"></div>
+      <div id="recent"></div>
+      <div class="row"><input id="newsum" placeholder="New task for the team, added to the sprint"><select id="newpts">
+        <option>1</option><option selected>2</option><option>3</option><option>5</option><option>8</option></select>
+        <button id="newadd">Add to sprint</button></div>
+      <div class="meta" id="newinfo"></div>
     </section>
     <section>
       <h2>Unassigned backlog <span class="count" id="nback">0</span></h2>
@@ -117,7 +136,7 @@ const api = async (path, body) => {
 const EXAMPLES = ["Who is at risk this sprint and why?", "Who has spare capacity?",
                   "Reassign the work of whoever is away to people with capacity."];
 const KIND = {assigned_while_absent: ["away, owns work", "warn"], assigned_to_terminated: ["left, owns work", "bad"],
-              overloaded: ["overloaded", "bad"], idle: ["no work", "warn"], stale_in_progress: ["stale", "warn"]};
+              overloaded: ["overloaded", "bad"], idle: ["no work", "warn"], stale_in_progress: ["stale", "warn"], unowned_in_sprint: ["no owner", "warn"]};
 let thread = null, issues = {}, names = {};
 
 function markdown(text) {
@@ -170,10 +189,48 @@ async function loadAudit() {
   $("chain").className = "tag " + (a.intact ? "ok" : "bad");
   $("audit").innerHTML = a.entries.map(e => {
     const d = e.data, detail = e.kind === "request" ? d.text : e.kind === "plan_proposed" ? (d.refused.length ? "refused: " + d.refused.join("; ") : d.plan.summary)
-      : e.kind === "approval" ? (d.approved ? "approved" : "rejected") : e.kind === "step" ? d.result : d.outcome;
+      : e.kind === "approval" ? (d.approved ? "approved" : "rejected") : e.kind === "step" ? d.result
+      : e.kind === "auto_assign" ? `${d.issue} → ${d.assignee || "nobody"}: ${d.reason}` : e.kind === "autoassign_mode" ? `mode ${d.mode}`
+      : e.kind === "auto_assign_undone" ? `${d.issue} unassigned` : e.kind === "issue_created" ? `${d.issue} ${d.summary}` : d.outcome;
     return `<div class="entry"><span class="t">${esc(e.at.slice(11, 19))}</span><span class="kind">${esc(e.kind)}</span>
       <span class="d" title="${esc(detail)}">${esc(e.actor)} · ${esc(detail)}</span></div>`;
   }).join("") || '<div class="empty">No entries yet.</div>';
+}
+
+async function loadAuto() {
+  const a = await api("/api/autoassign?actor=" + $("actor").value);
+  for (const b of $("modes").children) { b.className = b.dataset.mode === a.mode ? "on" : ""; b.disabled = !a.can_configure; }
+  $("modeinfo").textContent = a.mode === "auto"
+    ? `Auto: new sprint work gets an owner without asking${a.set_by ? ", switched on by " + a.set_by : ""}. Every assignment is explained and can be undone.`
+    : "Suggest: the system proposes an owner; a person confirms.";
+  $("nunowned").textContent = a.suggestions.length;
+  $("unowned").innerHTML = a.suggestions.map(s => `<div class="sug"><div><b>${esc(s.issue_key)}</b> · ${esc(s.summary)} · ${s.points} pts</div>
+      ${s.assignee_id && a.can_configure ? `<button class="primary" data-act="assign" data-key="${esc(s.issue_key)}">Assign to ${esc(s.assignee_name)}</button>` : "<span></span>"}
+      <div class="why">${esc(s.reason)}</div></div>`).join("") || '<div class="empty">Every sprint issue has an owner.</div>';
+  $("recent").innerHTML = a.recent.map(r => `<div class="sug"><div><span class="tag ok">${r.by_system ? "auto" : "confirmed"}</span> <b>${esc(r.issue_key)}</b> → ${esc(r.assignee_name)}</div>
+      ${a.can_configure ? `<button data-act="undo" data-key="${esc(r.issue_key)}">Undo</button>` : "<span></span>"}
+      <div class="why">${esc(r.reason)}</div></div>`).join("");
+  $("newadd").disabled = !a.can_configure;
+}
+const refresh = () => { loadOverview(); loadAuto(); loadAudit(); };
+async function act(what, issue_key) {
+  try { const r = await api("/api/autoassign/" + what, {actor: $("actor").value, issue_key}); if (!r.ok) $("newinfo").textContent = r.detail; }
+  catch (e) { $("newinfo").textContent = e.message; }
+  refresh();
+}
+async function setMode(mode) {
+  try { await api("/api/autoassign/mode", {actor: $("actor").value, mode}); } catch (e) { $("newinfo").textContent = e.message; }
+  refresh();
+}
+async function addIssue() {
+  const summary = $("newsum").value.trim(); if (!summary) return;
+  try {
+    const r = await api("/api/issues", {actor: $("actor").value, summary, points: +$("newpts").value});
+    const done = r.applied.find(a => a.issue_key === r.issue_key);
+    $("newinfo").textContent = `${r.issue_key} created.` + (done ? " " + done.detail : "");
+    $("newsum").value = "";
+  } catch (e) { $("newinfo").textContent = e.message; }
+  refresh();
 }
 
 function describe(step) {
@@ -200,7 +257,7 @@ async function run(job) {
   $("send").disabled = true; $("busy").textContent = "working…";
   try { show(await job()); } catch (e) { $("result").innerHTML = `<div class="answer">${esc(e.message)}</div>`; }
   $("send").disabled = false; $("busy").textContent = "";
-  loadOverview(); loadAudit();
+  refresh();
 }
 const send = () => $("text").value.trim() && run(() => api("/api/ask", {actor: $("actor").value, text: $("text").value.trim()}));
 const decide = approved => run(() => api("/api/decide", {actor: $("actor").value, thread, approved}));
@@ -211,10 +268,13 @@ const decide = approved => run(() => api("/api/decide", {actor: $("actor").value
   $("actor").innerHTML = p.people.map(x => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.role)}</option>`).join("");
   $("examples").innerHTML = EXAMPLES.map(t => `<button>${esc(t)}</button>`).join("");
   $("examples").onclick = e => { if (e.target.tagName === "BUTTON") $("text").value = e.target.textContent; };
-  $("actor").onchange = () => { $("result").innerHTML = ""; loadOverview(); };
+  $("actor").onchange = () => { $("result").innerHTML = ""; $("newinfo").textContent = ""; refresh(); };
+  $("modes").onclick = e => { if (e.target.dataset.mode) setMode(e.target.dataset.mode); };
+  $("newadd").onclick = addIssue;
+  for (const id of ["unowned", "recent"]) $(id).onclick = e => { if (e.target.dataset.act) act(e.target.dataset.act, e.target.dataset.key); };
   $("send").onclick = send;
   $("text").onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); };
-  loadOverview(); loadAudit();
+  refresh();
 })();
 </script>
 </body>
