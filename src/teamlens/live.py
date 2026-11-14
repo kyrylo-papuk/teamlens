@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import date, datetime, time, timezone
+from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 from teamlens.config import Settings
@@ -76,7 +76,7 @@ async def seed() -> None:
     await jira._call("POST", f"/rest/agile/1.0/sprint/{sprint['id']}/issue", json={"issues": sprint_keys})
     if sprint["state"] != "active":
         def stamp(d: date) -> str:
-            return datetime.combine(d, time(9), timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            return datetime.combine(d, time(9), UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         await jira._call("POST", f"/rest/agile/1.0/sprint/{sprint['id']}",
                          json={"state": "active", "startDate": stamp(c.sprint_start), "endDate": stamp(c.sprint_end)})
     await jira.aclose()

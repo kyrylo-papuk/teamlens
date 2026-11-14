@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 GENESIS = "0" * 64
@@ -31,7 +31,7 @@ class AuditLog:
         previous = self.entries()
         entry = {
             "seq": len(previous) + 1,
-            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "at": datetime.now(UTC).isoformat(timespec="seconds"),
             "kind": kind, "actor": actor, "thread": thread, "data": data,
             "prev": previous[-1]["hash"] if previous else GENESIS,
         }

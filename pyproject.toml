@@ -24,3 +24,14 @@ pythonpath = ["src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-p no:deepeval"
+
+[tool.ruff]
+line-length = 140
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["B905"]  # zip() without strict=: the pairs here are built to be the same length
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]  # long literal expectations read better on one line

@@ -95,7 +95,7 @@ async def delivery(client, tmp_path, *replies):
 
 
 async def test_delivery_agent_gets_people_data_over_a2a(tmp_path):
-    from teamlens.delivery.model import call, say
+    from teamlens.delivery.model import call
 
     pay = [e for e in C.employees if e.team == "PAY"]
     manager, free, issue = pay[0].id, pay[2].id, C.planted["assigned_while_absent"][0]

@@ -16,7 +16,7 @@ a judgement call and stays with people.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -123,7 +123,7 @@ class AutoAssigner:
         self._require_assign_rights(world)
         saved = json.loads(self._path.read_text(encoding="utf-8")) if self._path.exists() else {}
         saved[world.actor.team] = {"mode": mode, "set_by": actor_id,
-                                   "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+                                   "at": datetime.now(UTC).isoformat(timespec="seconds")}
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(json.dumps(saved, indent=1), encoding="utf-8")
         self._audit.record("autoassign_mode", actor_id, "-", team=world.actor.team, mode=mode)

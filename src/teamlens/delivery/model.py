@@ -26,7 +26,7 @@ class Usage(BaseModel):
     cache_read: int = 0
     cache_write: int = 0
 
-    def plus(self, other: "Usage") -> "Usage":
+    def plus(self, other: Usage) -> Usage:
         return Usage(**{k: getattr(self, k) + getattr(other, k) for k in Usage.model_fields})
 
     @property

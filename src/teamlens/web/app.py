@@ -26,8 +26,8 @@ from pydantic import BaseModel
 from teamlens import live
 from teamlens.access import RIGHTS, Access
 from teamlens.config import Settings
-from teamlens.delivery.agent import DeliveryAgent
 from teamlens.delivery import digest as digests
+from teamlens.delivery.agent import DeliveryAgent
 from teamlens.delivery.audit import AuditLog
 from teamlens.delivery.autoassign import AutoAssigner, Mode
 from teamlens.delivery.model import ClaudeModel, Model
@@ -41,7 +41,8 @@ from teamlens.people import A2APeople, LocalPeople
 from teamlens.seed import generate
 from teamlens.similar import Finder, load_embedder
 from teamlens.tracing import Tracing
-from teamlens.triage import Triage, load as load_triage
+from teamlens.triage import Triage
+from teamlens.triage import load as load_triage
 
 PAGE = Path(__file__).with_name("page.html")
 
@@ -240,7 +241,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                   if e["kind"] == "auto_assign" and e["data"].get("assignee")
                   and getattr(world.issues.get(e["data"]["issue"]), "assignee_id", None) == e["data"]["assignee"]][:5]
         return {"mode": setting["mode"], "set_by": names.get(setting["set_by"]),
-                "triage": app.state.triage, "can_configure": "autoassign.configure" in world.rights, "can_create": "issues.create" in world.rights,
+                "triage": app.state.triage, "can_configure": "autoassign.configure" in world.rights,
+                "can_create": "issues.create" in world.rights,
                 "suggestions": [s.model_dump() for s in await auto.suggestions(actor)], "recent": recent}
 
     @app.post("/api/autoassign/mode")

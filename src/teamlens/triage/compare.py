@@ -112,7 +112,8 @@ def compare(with_llm: bool) -> None:
     print(f"{len(titles)} test titles ({len(titles) // len(AREAS)} per area)\n")
     print(f"{'classifier':22}{'accuracy':>9}{'macro-F1':>10}{'ms/ticket':>11}{'$ per 1000':>12}")
     for r in results:
-        print(f"{r['classifier']:22}{r['accuracy']:>9.1%}{r['macro_f1']:>10.3f}{r['ms_per_ticket']:>11}{r['usd_per_1000_tickets']:>12}  {r['note']}")
+        print(f"{r['classifier']:22}{r['accuracy']:>9.1%}{r['macro_f1']:>10.3f}{r['ms_per_ticket']:>11}"
+              f"{r['usd_per_1000_tickets']:>12}  {r['note']}")
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps({"test_titles": len(titles), "setfit_selection": chosen, "results": results},
                               indent=1, ensure_ascii=False), encoding="utf-8")

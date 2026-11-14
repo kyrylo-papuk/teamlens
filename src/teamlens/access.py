@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -135,7 +135,7 @@ class Access:
         if role_name in self.granted(target, team) or (team == target.team and role_name == self.base_role(target)):
             raise ValueError(f"{target.name} already has the role '{role_name}'.")
         self._grants.append(Grant(employee_id=target.id, role=role_name, team=team, by=actor.id,
-                                  at=datetime.now(timezone.utc).isoformat(timespec="seconds")))
+                                  at=datetime.now(UTC).isoformat(timespec="seconds")))
         self._save("role_granted", actor, employee=target.id, role=role_name, team=team)
 
     def revoke(self, actor: Person, target: Person, role_name: str) -> None:

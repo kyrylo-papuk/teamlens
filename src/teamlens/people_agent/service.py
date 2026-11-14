@@ -22,8 +22,17 @@ from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import (AgentCapabilities, AgentCard, AgentInterface, AgentSkill, HTTPAuthSecurityScheme,
-                       Role, SecurityRequirement, SecurityScheme, StringList)
+from a2a.types import (
+    AgentCapabilities,
+    AgentCard,
+    AgentInterface,
+    AgentSkill,
+    HTTPAuthSecurityScheme,
+    Role,
+    SecurityRequirement,
+    SecurityScheme,
+    StringList,
+)
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from starlette.applications import Starlette
 from starlette.authentication import AuthCredentials, AuthenticationBackend, AuthenticationError, SimpleUser

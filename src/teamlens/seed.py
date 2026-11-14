@@ -74,7 +74,7 @@ class Company(BaseModel):
 
 def generate(seed: int = 7, today: date = TODAY) -> Company:
     rng = random.Random(seed)
-    names = [f"{f} {l}" for f in FIRST for l in LAST]
+    names = [f"{first} {last}" for first in FIRST for last in LAST]
     rng.shuffle(names)
     employees: list[Employee] = []
 

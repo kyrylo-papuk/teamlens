@@ -78,7 +78,7 @@ class Tracing:
         self._client, self.masker = client, masker or Masker()
 
     @classmethod
-    def from_settings(cls, public_key: str, secret_key: str, host: str) -> "Tracing":
+    def from_settings(cls, public_key: str, secret_key: str, host: str) -> Tracing:
         if not (public_key and secret_key):
             return cls()
         masker = Masker()
