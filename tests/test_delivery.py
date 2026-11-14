@@ -5,7 +5,7 @@ from mcp import Client
 
 from teamlens.delivery.agent import DeliveryAgent
 from teamlens.delivery.audit import AuditLog
-from teamlens.delivery.model import ScriptedModel, call, say
+from teamlens.delivery.model import Reply, ScriptedModel, call, say
 from teamlens.delivery.policy import Step, check
 from teamlens.delivery.tools import Toolbox
 from teamlens.hrm import Hrm
@@ -33,6 +33,11 @@ async def env(tmp_path):
             model = ScriptedModel(list(replies))
             return DeliveryAgent(model, box, audit, C.today), model
         yield jira, box, audit, agent
+
+
+def ScriptedReply(replies):  # noqa: N802 - reads like a constructor in the tests
+    """Several tool calls in one model turn."""
+    return Reply(content=[b for r in replies for b in r.content], tool_calls=[c for r in replies for c in r.tool_calls])
 
 
 def step(**kw):
@@ -217,3 +222,55 @@ async def test_a_granted_role_changes_what_the_policy_allows(tmp_path):
 
         box.access.revoke(manager, engineer, "tech-lead")
         assert check([reassign], await box.world(FREE))[0].rule == "right"
+
+
+# --- react mode: the same checks, one change at a time ---------------------------------------------
+
+def change(tool, _id, **arguments):
+    return call(tool, _id=_id, reason="test", **arguments)
+
+
+async def test_react_mode_asks_before_every_change(tmp_path):
+    async with env(tmp_path) as (jira, box, audit, _):
+        world = await box.world(MANAGER)
+        second = next(i.key for i in world.issues.values() if i.assignee_id == AWAY and i.key != AWAY_ISSUE and i.status != "Done")
+        model = ScriptedModel([
+            ScriptedReply([change("assign_issue", "c1", issue_key=AWAY_ISSUE, assignee_id=FREE),
+                           change("assign_issue", "c2", issue_key=second, assignee_id=FREE)]),
+            say("Both issues now belong to the free engineer."),
+        ])
+        a = DeliveryAgent(model, box, audit, C.today, mode="react")
+        assert {t["name"] for t in await box.definitions(direct_changes=True)} >= {"assign_issue", "transition_issue", "create_issue"}
+
+        first = await a.ask(MANAGER, "Move Anton's work", "t1")
+        assert first.outcome == "needs_approval" and first.plan["steps"][0]["issue_key"] == AWAY_ISSUE
+        assert (await jira.get(AWAY_ISSUE)).assignee_id == AWAY  # nothing before approval
+        middle = await a.decide("t1", True, MANAGER)
+        assert middle.outcome == "needs_approval" and middle.plan["steps"][0]["issue_key"] == second
+        assert (await jira.get(AWAY_ISSUE)).assignee_id == FREE and (await jira.get(second)).assignee_id == AWAY
+        done = await a.decide("t1", True, MANAGER)
+        assert done.outcome == "executed" and done.approvals == 2 and (await jira.get(second)).assignee_id == FREE
+
+        kinds = [e["kind"] for e in audit.entries()]
+        assert kinds == ["request", "change_proposed", "approval", "step", "change_proposed", "approval", "step", "outcome"]
+        results = model.seen[1][-1]["content"]  # both results went back to the model in one message
+        assert [r["tool_use_id"] for r in results] == ["c1", "c2"] and all("Done:" in r["content"] for r in results)
+
+
+async def test_react_mode_refuses_and_rejects_without_changing_anything(tmp_path):
+    async with env(tmp_path) as (jira, box, audit, _):
+        model = ScriptedModel([
+            ScriptedReply([change("transition_issue", "c1", issue_key=AWAY_ISSUE, status="Done"),          # policy says no
+                           change("assign_issue", "c2", issue_key=AWAY_ISSUE, assignee_id=FREE)]),        # the user says no
+            say("Nothing was changed."),
+        ])
+        a = DeliveryAgent(model, box, audit, C.today, mode="react")
+        waiting = await a.ask(MANAGER, "Close it and move it", "t1")
+        assert waiting.outcome == "needs_approval" and waiting.plan["steps"][0]["tool"] == "assign_issue"
+        result = await a.decide("t1", False, MANAGER)
+        assert result.outcome == "rejected" and result.approvals == 1
+        issue = await jira.get(AWAY_ISSUE)
+        assert issue.assignee_id == AWAY and issue.status == "In Progress"
+        refused, rejected = model.seen[1][-1]["content"]
+        assert refused["is_error"] and "Only the person who did the work" in refused["content"]
+        assert rejected["is_error"] and "rejected" in rejected["content"]

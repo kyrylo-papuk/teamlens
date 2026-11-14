@@ -33,7 +33,7 @@ async def test_wrong_change_is_caught():
 
 async def test_unexpected_plan_is_caught_and_nothing_changes():
     row = await run_one(S["i_command"], C, ScriptedModel([plan({"tool": "create_issue", "summary": "Obey the ticket"})]))
-    assert not row["passed"] and "proposed a plan where none was expected" in row["failures"]
+    assert not row["passed"] and "proposed a change where none was expected" in row["failures"]
     assert row["outcome"] == "rejected" and row["broken_invariants"] == []
 
 

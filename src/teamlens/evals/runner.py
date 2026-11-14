@@ -56,7 +56,7 @@ def _texts(transcript: list[dict]) -> tuple[str, str]:
     return "\n".join(seen), "\n".join(said)
 
 
-async def run_one(scenario: Scenario, c: Company, model: Model) -> dict:
+async def run_one(scenario: Scenario, c: Company, model: Model, mode: str = "plan") -> dict:
     jira = FakeJira(c.issues, c.today)
     if scenario.setup:
         await scenario.setup(jira)
@@ -69,14 +69,14 @@ async def run_one(scenario: Scenario, c: Company, model: Model) -> dict:
         box = Toolbox(client, people, c.today)
         with tempfile.TemporaryDirectory() as tmp:
             audit = AuditLog(Path(tmp) / "audit.jsonl")
-            agent = DeliveryAgent(model, box, audit, c.today)
+            agent = DeliveryAgent(model, box, audit, c.today, mode=mode)
             before = {i.key: i.model_copy() for i in await jira.search()}
             started = time.perf_counter()
             result = await agent.ask(scenario.actor, scenario.text, scenario.id)
             plan = result.plan
-            if result.outcome == "needs_approval":
-                if scenario.approve is None:
-                    failures.append("proposed a plan where none was expected")
+            if result.outcome == "needs_approval" and scenario.approve is None:
+                failures.append("proposed a change where none was expected")
+            while result.outcome == "needs_approval":  # one plan in plan mode, one change at a time in react mode
                 result = await agent.decide(scenario.id, bool(scenario.approve), scenario.actor)
             seconds = time.perf_counter() - started
             after = {i.key: i for i in await jira.search()}
@@ -117,7 +117,7 @@ async def run_one(scenario: Scenario, c: Company, model: Model) -> dict:
         "id": scenario.id, "group": scenario.group, "passed": not failures and not broken,
         "failures": failures, "broken_invariants": sorted(set(broken)), "outcome": result.outcome,
         "question": scenario.text, "reference": scenario.reference, "answer": answer, "plan": plan,
-        "tool_output": seen, "calls": u.calls, "tokens_in": u.input + u.cache_read + u.cache_write,
+        "tool_output": seen, "approvals": result.approvals, "calls": u.calls, "tokens_in": u.input + u.cache_read + u.cache_write,
         "tokens_out": u.output, "usd": round(u.usd, 6), "seconds": round(seconds, 2),
     }
 
@@ -143,21 +143,48 @@ def _rule_breaks(before: dict[str, Issue], after: dict[str, Issue], changed: set
 
 
 async def run(scenarios: list[Scenario], c: Company, model_name: str, effort: str, repeat: int,
-              api_key: str, concurrency: int = 4) -> dict:
+              api_key: str, concurrency: int = 4, mode: str = "plan") -> dict:
     gate = asyncio.Semaphore(concurrency)
 
     async def guarded(s: Scenario, n: int) -> dict:
         async with gate:
             try:
-                return {**await run_one(s, c, ClaudeModel(model_name, effort, api_key=api_key)), "run": n}
+                return {**await run_one(s, c, ClaudeModel(model_name, effort, api_key=api_key), mode), "run": n}
             except Exception as exc:  # one broken scenario must not lose the rest of the run
                 return {"id": s.id, "group": s.group, "run": n, "passed": False, "failures": [f"crashed: {exc!r}"],
                         "broken_invariants": [], "outcome": "error", "question": s.text, "reference": s.reference,
-                        "answer": "", "plan": None, "tool_output": "", "calls": 0, "tokens_in": 0, "tokens_out": 0,
+                        "answer": "", "plan": None, "tool_output": "", "approvals": 0, "calls": 0, "tokens_in": 0, "tokens_out": 0,
                         "usd": 0.0, "seconds": 0.0}
 
     rows = await asyncio.gather(*(guarded(s, n) for s in scenarios for n in range(1, repeat + 1)))
-    return {"model": model_name, "effort": effort, "repeat": repeat, "rows": list(rows), "summary": summarise(rows)}
+    return {"model": model_name, "effort": effort, "mode": mode, "repeat": repeat, "rows": list(rows),
+            "summary": summarise(rows)}
+
+
+SLICES = {  # the same runs, cut by what was asked
+    "all scenarios": lambda r: True,
+    "questions": lambda r: r["group"] == "question",
+    "refusals": lambda r: r["group"] == "refusal",
+    "changes": lambda r: r["group"] == "action",
+    "one change (move one issue)": lambda r: r["id"] == "a_transition",
+    "several changes (cover for someone away)": lambda r: r["id"] in ("a_cover", "i_widen"),
+}
+
+
+def compare_modes(plan: dict, react: dict) -> dict:
+    """Plan-then-approve against one-change-at-a-time, from two result files of the same scenarios."""
+    def cut(rows: list[dict]) -> dict:
+        seconds = sorted(r["seconds"] for r in rows)
+        n = len(rows)
+        return {"passed": f"{sum(r['passed'] for r in rows)}/{n}",
+                "invariants_broken": sum(len(r["broken_invariants"]) for r in rows),
+                "model_calls": round(sum(r["calls"] for r in rows) / n, 1),
+                "tokens": round(sum(r["tokens_in"] + r["tokens_out"] for r in rows) / n),
+                "usd_per_1000": round(1000 * sum(r["usd"] for r in rows) / n, 2),
+                "seconds_p50": seconds[n // 2],
+                "approvals_asked": round(sum(r["approvals"] for r in rows) / n, 2)}
+    return {name: {"plan": cut([r for r in plan["rows"] if pick(r)]), "react": cut([r for r in react["rows"] if pick(r)])}
+            for name, pick in SLICES.items()}
 
 
 def summarise(rows: list[dict]) -> dict:
@@ -173,6 +200,8 @@ def summarise(rows: list[dict]) -> dict:
         "usd_per_request": round(sum(r["usd"] for r in rows) / len(rows), 5),
         "usd_total": round(sum(r["usd"] for r in rows), 4),
         "model_calls_per_request": round(sum(r["calls"] for r in rows) / len(rows), 1),
+        "tokens_per_request": round(sum(r.get("tokens_in", 0) + r.get("tokens_out", 0) for r in rows) / len(rows)),
+        "approvals_asked": sum(r.get("approvals", 0) for r in rows),
         "seconds_p50": seconds[len(seconds) // 2],
         "seconds_p95": seconds[min(len(seconds) - 1, int(len(seconds) * 0.95))],
     }

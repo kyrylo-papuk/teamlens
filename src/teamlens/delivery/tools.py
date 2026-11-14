@@ -90,6 +90,28 @@ PLAN_TOOL = {
 }
 
 
+def _change_tool(name: str, description: str, properties: dict) -> dict:
+    properties = {**properties, "reason": {"type": "string", "description": "Why, in one sentence. Shown to the approver."}}
+    return {"name": name, "description": description + " Checked against company policy, then approved by the user.",
+            "strict": True, "input_schema": {"type": "object", "properties": properties, "required": list(properties),
+                                             "additionalProperties": False}}
+
+
+# React mode only: the same three changes a plan can contain, as tools the model calls one at a time.
+CHANGE_TOOLS = {t["name"]: t for t in (
+    _change_tool("assign_issue", "Give an issue to a person.", {
+        "issue_key": {"type": "string"},
+        "assignee_id": {"type": ["string", "null"], "description": "Employee id; null to unassign."}}),
+    _change_tool("transition_issue", "Move an issue to another status.", {
+        "issue_key": {"type": "string"}, "status": {"type": "string", "description": ", ".join(STATUSES)}}),
+    _change_tool("create_issue", "Create an unassigned issue in the backlog.", {"summary": {"type": "string"}}),
+)}
+
+
+def to_step(tool: str, arguments: dict) -> Step:
+    return Step(tool=tool, **arguments)
+
+
 class ToolFailure(Exception):
     pass
 
@@ -111,8 +133,9 @@ class Toolbox:
         self._fit = self._fit or default_fit()
         return forecast(world.overview, list(world.issues.values()), self._fit)
 
-    async def definitions(self) -> list[dict]:
-        """Tool list for the model. Stable order, so the prompt prefix stays cacheable."""
+    async def definitions(self, direct_changes: bool = False) -> list[dict]:
+        """Tool list for the model. Stable order, so the prompt prefix stays cacheable.
+        ``direct_changes`` swaps the single plan tool for one tool per kind of change (react mode)."""
         if self._read_tools is None:
             listed = (await self._jira.list_tools()).tools
             self._read_tools = [
@@ -121,7 +144,8 @@ class Toolbox:
                 if t.annotations is not None and t.annotations.read_only_hint
             ]
         delegate = [PEOPLE_TOOL] if hasattr(self._people, "ask") else []  # only when People is another agent
-        return [OVERVIEW_TOOL, FORECAST_TOOL, SIMILAR_TOOL, *self._read_tools, *delegate, PLAN_TOOL]
+        changes = list(CHANGE_TOOLS.values()) if direct_changes else [PLAN_TOOL]
+        return [OVERVIEW_TOOL, FORECAST_TOOL, SIMILAR_TOOL, *self._read_tools, *delegate, *changes]
 
     async def _call_jira(self, name: str, arguments: dict):
         result = await self._jira.call_tool(name, arguments)
