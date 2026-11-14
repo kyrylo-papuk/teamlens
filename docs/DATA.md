@@ -38,7 +38,7 @@ record at that line: `Availability` carries dates, and no type on the Delivery s
 | Store | Content | Class | Notes |
 |---|---|---|---|
 | Jira | issues, plus a comment on every change the agent made: who asked and why | Internal | system of record for work |
-| HRM | employees, absences | up to Restricted | system of record for people; only the People agent's process opens it |
+| HRM | employees, absences | up to Restricted | system of record for people; in the two-service deployment only the People agent's process opens it |
 | Audit log | request text, proposed plan, verdict of every rule, approval, each executed step, outcome, token usage; every automatic assignment with the candidates considered; every role defined, given or taken away | Confidential | append-only; each entry holds the hash of the previous one |
 | Conversation state | messages and tool results of a request, so a paused plan can resume | Confidential | holds the same minimised data the model saw; no Restricted data can be in it |
 | Roles and grants | the team's own roles, who was given which role, by whom and when | Confidential | changed only through `access.py`; every change is also in the audit log |
@@ -48,8 +48,10 @@ record at that line: `Availability` carries dates, and no type on the Delivery s
 ## Why two agents instead of one
 
 A single agent with "do not reveal the reason for absence" in its prompt holds the reason in its
-context, and a prompt is a request, not a guarantee. Here the reason is never loaded into the Delivery
-agent's process, so there is nothing to leak. The People agent is a separate service with its own
+context, and a prompt is a request, not a guarantee. Here the reason never reaches the model, and in the
+two-service deployment (the compose file) it is not in the Delivery process at all, so there is nothing to leak.
+Tests and quick local runs use a single-process mode with the same interface; the HRM is then loaded
+in-process and the boundary is the interface in `people.py`, not a process. The People agent is a separate service with its own
 credentials and its own rules about what it answers; the Delivery agent is one of its callers, not its owner.
 
 That is also the reason the two sides use different protocols. Jira is a tool: it does what it is told, so

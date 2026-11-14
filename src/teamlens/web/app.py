@@ -140,7 +140,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                 saved.parent.mkdir(parents=True, exist_ok=True)
                 checkpointer = await stack.enter_async_context(AsyncSqliteSaver.from_conn_string(str(saved)))
             app.state.agent = DeliveryAgent(app.state.model, app.state.box, app.state.audit, c.today, checkpointer)
-            app.state.source = "in-memory demo data" if fake else s.jira_base_url
+            app.state.source = "in-memory demo data" if fake else "Jira Cloud"
             settings_path = audit_path.with_name("team_settings.json") if audit_path else Path("data/team_settings.json")
             # Tests pass their own classifier or none; a real run uses the trained model if there is one.
             sorter = triage or (None if model is not None else load_triage(s.anthropic_api_key))
