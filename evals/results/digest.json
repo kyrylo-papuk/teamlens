@@ -1,0 +1,186 @@
+{
+ "planted_errors": 16,
+ "caught": 16,
+ "by_kind": {
+  "date": "1/1",
+  "issue key": "5/5",
+  "name": "5/5",
+  "number": "5/5"
+ },
+ "caught_by_code_alone": 5,
+ "digests_written": 5,
+ "first_drafts_objected_to": 2,
+ "per_digest": {
+  "draft_only": {
+   "usd": 0.00064,
+   "seconds": 5.0,
+   "model_calls": 1.0
+  },
+  "with_check": {
+   "usd": 0.00122,
+   "seconds": 10.5,
+   "model_calls": 2.8
+  }
+ },
+ "cases": [
+  {
+   "team": "PAY",
+   "kind": "number",
+   "planted": "167",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "PAY",
+   "kind": "name",
+   "planted": "Dana Meyer",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "PAY",
+   "kind": "issue key",
+   "planted": "PAY-91",
+   "caught": true,
+   "by_code": true
+  },
+  {
+   "team": "PAY",
+   "kind": "date",
+   "planted": "2026-11-30",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "LED",
+   "kind": "number",
+   "planted": "17",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "LED",
+   "kind": "name",
+   "planted": "Anton Lindqvist",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "LED",
+   "kind": "issue key",
+   "planted": "LED-93",
+   "caught": true,
+   "by_code": true
+  },
+  {
+   "team": "KYC",
+   "kind": "number",
+   "planted": "76",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "KYC",
+   "kind": "name",
+   "planted": "Anton Lindqvist",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "KYC",
+   "kind": "issue key",
+   "planted": "KYC-97",
+   "caught": true,
+   "by_code": true
+  },
+  {
+   "team": "MOB",
+   "kind": "number",
+   "planted": "28",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "MOB",
+   "kind": "name",
+   "planted": "Anton Lindqvist",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "MOB",
+   "kind": "issue key",
+   "planted": "MOB-96",
+   "caught": true,
+   "by_code": true
+  },
+  {
+   "team": "PLT",
+   "kind": "number",
+   "planted": "19",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "PLT",
+   "kind": "name",
+   "planted": "Anton Lindqvist",
+   "caught": true,
+   "by_code": false
+  },
+  {
+   "team": "PLT",
+   "kind": "issue key",
+   "planted": "PLT-923",
+   "caught": true,
+   "by_code": true
+  }
+ ],
+ "digests": [
+  {
+   "team": "PAY",
+   "revisions": 0,
+   "objections_to_first_draft": [],
+   "left_unresolved": 0,
+   "digest": "- Anton Lindqvist is away until 2026-11-21 but still owns PAY-1, PAY-3 and PAY-23. His load is 160% (8 sprint points against 5 capacity). Reassign these three issues or agree cover before they stall.\n- Marek Aydin and Felix Okafor are both at 40% load with 10 capacity each, so they have the most room on the backend for taking over Anton's work.\n- The sprint is on track: 3 of 32 committed points are done, and the forecast is 32.0 (90% interval 28.3 to 32.0), so it is not at risk.\n- Six backlog issues have no owner. Assign them during planning."
+  },
+  {
+   "team": "LED",
+   "revisions": 1,
+   "objections_to_first_draft": [
+    {
+     "quote": "Hana Rossi (25% load), Nadia Novak (30%) and Dana Meyer (30%) have the most spare capacity among those who are at work.",
+     "why": "The facts show Anton Meyer at 0% load and Priya Petrov at 10% load, both at work, so Hana Rossi, Nadia Novak and Dana Meyer do not have the most spare capacity."
+    }
+   ],
+   "left_unresolved": 0,
+   "digest": "- Reassign LED-3, LED-4 and LED-24 first. Clara Rossi has left the company but still owns them, and she accounted for 5 sprint points. Anton Meyer (0% load) and Priya Petrov (10%) have the most spare capacity among those who are at work, then Hana Rossi (25%), Nadia Novak (30%) and Dana Meyer (30%).\n- The sprint is on track: 29 points committed, 3 done, and the expected outcome is 29.0 points (90% interval 25.3 to 29.0), so it is not at risk.\n- Priya Berg is the most loaded engineer at 75% (6 of 8 points) across LED-15, LED-16 and LED-17. Check whether any of them can move to someone with room.\n- Priya Rossi (QA) is at 60% load with LED-7, LED-8 and LED-9. Watch these for review and test bottlenecks.\n- Six backlog issues have no owner. Assign them before the next sprint planning.\n- Anton Meyer has 10 points of capacity and no open issues, so he could take one of the reassigned issues if the team needs it."
+  },
+  {
+   "team": "KYC",
+   "revisions": 0,
+   "objections_to_first_draft": [],
+   "left_unresolved": 0,
+   "digest": "- The sprint is at risk: expected delivery is 56.2 points against 69 committed (90% range 52.5 to 59.8), and only 4 points are done. Decide today what comes out of scope.\n- Ines Okafor is overloaded with 43 sprint points against a capacity of 5.0 (860% load), holding KYC-7, KYC-8, KYC-23, KYC-24, KYC-25, KYC-26 and KYC-27. Move issues off her today.\n- Spare capacity exists across the team: Leila Moreau has 8 points free, Oskar Duarte 6, Emre Rossi 5, Sofia Novak 5, Yuki Novak 4 and Oskar Tanaka 3. Check which of these people can take over Ines's work.\n- Six backlog issues have no owner. Assign them so they can be pulled into the sprint or deferred.\n- You have 8.0 points of capacity and no open issues, so you could take on part of the rebalancing."
+  },
+  {
+   "team": "MOB",
+   "revisions": 0,
+   "objections_to_first_draft": [],
+   "left_unresolved": 0,
+   "digest": "- Clara Haddad (QA Engineer) is available with 8 points of capacity and no open issues or sprint points. Assign her work today.\n- Six backlog issues have no owner. Decide who takes them, starting with Clara Haddad.\n- The sprint is not at risk: 21 points are committed, 21.0 are expected (90% interval 17.3 to 21.0), and 3 are done so far.\n- Oskar Meyer (Frontend Engineer) is the most loaded at 80% (4 of 5 points, MOB-6 and MOB-7). Check whether MOB-6 or MOB-7 can move to someone with room.\n- Felix Petrov (Mobile Engineer) is at 10% load (1 of 10 points, MOB-10) and Jonas Aydin (Backend Engineer) at 60% (6 of 10 points). Both have room for backlog work."
+  },
+  {
+   "team": "PLT",
+   "revisions": 1,
+   "objections_to_first_draft": [
+    {
+     "quote": "Tomas Tanaka is at 10% load (1 of 10 points) and has the most spare capacity",
+     "why": "Clara Silva has 10 spare points (0 of 10 used, 0% load), which is more than Tomas Tanaka's 9 spare points, so he does not have the most spare capacity."
+    }
+   ],
+   "left_unresolved": 0,
+   "digest": "- PLT-23 has been In Progress with no update for 12 days. Ask Leila Kowalski for a status today, and reassign it if it is blocked.\n- Jonas Moreau is at 80% load (4 of 5 points) with PLT-10 and PLT-11. Check that he has room for them before adding work.\n- Six backlog issues have no owner. Clara Silva has the most spare capacity (10 of 10 points free, 0% load), and Tomas Tanaka is next (9 points free, 10% load), so consider assigning some of them to either of them.\n- The sprint is not at risk: 9 of 34 points are done, and the expected finish is 34.0 points (90% interval 30.3 to 34.0)."
+  }
+ ]
+}

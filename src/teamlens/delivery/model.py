@@ -41,6 +41,8 @@ class Reply(BaseModel):
 
 class Model(Protocol):
     async def respond(self, system: str, messages: list[dict], tools: list[dict]) -> Reply: ...
+    async def text(self, system: str, user: str) -> tuple[str, Usage]: ...
+    async def structured(self, system: str, user: str, schema: type[BaseModel]) -> tuple[BaseModel, Usage]: ...
 
 
 class ClaudeModel:
@@ -54,8 +56,8 @@ class ClaudeModel:
             model=self._model,
             max_tokens=16000,
             system=system,
-            tools=tools,
             messages=messages,
+            **({"tools": tools} if tools else {}),
             output_config={"effort": self._effort},
             cache_control={"type": "ephemeral"},  # caches the stable prefix: tools, system, earlier turns
         )
@@ -73,11 +75,26 @@ class ClaudeModel:
             usage=usage,
         )
 
+    async def text(self, system: str, user: str) -> tuple[str, Usage]:
+        """One answer in plain text, no tools."""
+        reply = await self.respond(system, [{"role": "user", "content": user}], [])
+        return reply.text, reply.usage
+
+    async def structured(self, system: str, user: str, schema: type[BaseModel]) -> tuple[BaseModel, Usage]:
+        """One answer constrained to ``schema``."""
+        response = await self._client.messages.parse(
+            model=self._model, max_tokens=16000, system=system, messages=[{"role": "user", "content": user}],
+            output_config={"effort": self._effort}, output_format=schema)
+        u = response.usage
+        return response.parsed_output, Usage(calls=1, input=u.input_tokens, output=u.output_tokens,
+                                             cache_read=u.cache_read_input_tokens or 0,
+                                             cache_write=u.cache_creation_input_tokens or 0)
+
 
 class ScriptedModel:
     """Replays prepared replies in order and records what it was shown."""
 
-    def __init__(self, replies: list[Reply]) -> None:
+    def __init__(self, replies: list) -> None:
         self._replies = list(replies)
         self.seen: list[list[dict]] = []
         self.tools: list[dict] = []
@@ -86,6 +103,17 @@ class ScriptedModel:
         self.seen.append(list(messages))
         self.tools = tools
         return self._replies.pop(0)
+
+    async def text(self, system: str, user: str) -> tuple[str, Usage]:
+        reply = await self.respond(system, [{"role": "user", "content": user}], [])
+        return reply.text, reply.usage
+
+    async def structured(self, system: str, user: str, schema: type[BaseModel]) -> tuple[BaseModel, Usage]:
+        """The next prepared reply must be an instance of ``schema``."""
+        self.seen.append([{"role": "user", "content": user}])
+        answer = self._replies.pop(0)
+        assert isinstance(answer, schema), f"scripted reply is {type(answer).__name__}, expected {schema.__name__}"
+        return answer, Usage(calls=1)
 
 
 def say(text: str) -> Reply:

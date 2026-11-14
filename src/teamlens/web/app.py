@@ -27,6 +27,7 @@ from teamlens import live
 from teamlens.access import RIGHTS, Access
 from teamlens.config import Settings
 from teamlens.delivery.agent import DeliveryAgent
+from teamlens.delivery import digest as digests
 from teamlens.delivery.audit import AuditLog
 from teamlens.delivery.autoassign import AutoAssigner, Mode
 from teamlens.delivery.model import ClaudeModel, Model
@@ -69,6 +70,10 @@ class NewIssue(BaseModel):
     actor: str
     summary: str
     points: int = 1
+
+
+class OnActor(BaseModel):
+    actor: str
 
 
 class Similar(BaseModel):
@@ -117,8 +122,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             # A scripted model means a test: skip loading the embedding model and search by words.
             finder = Finder(load_embedder() if model is None else None)
             app.state.box = Toolbox(client, people, c.today, app.state.access, finder)
-            app.state.agent = DeliveryAgent(model or ClaudeModel(api_key=s.anthropic_api_key), app.state.box,
-                                            app.state.audit, c.today)
+            app.state.model = model or ClaudeModel(api_key=s.anthropic_api_key)
+            app.state.agent = DeliveryAgent(app.state.model, app.state.box, app.state.audit, c.today)
             app.state.source = "in-memory demo data" if fake else s.jira_base_url
             settings_path = audit_path.with_name("team_settings.json") if audit_path else Path("data/team_settings.json")
             # Tests pass their own classifier or none; a real run uses the trained model if there is one.
@@ -173,6 +178,22 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                 "loads": [x.model_dump(mode="json") for x in world.overview.loads],
                 "findings": [{**f.model_dump(), "name": names.get(f.employee_id)} for f in world.overview.findings],
                 "issues": issues, "backlog": backlog, "forecast": app.state.box.forecast(world).model_dump()}
+
+    @app.post("/api/digest")
+    async def digest(body: OnActor) -> dict:
+        """The morning digest for this person's team. A scheduler would call the same thing once a day."""
+        world = await guarded(app.state.box.world(body.actor))
+        if "overview.view" not in world.rights:
+            raise HTTPException(403, f"{world.actor.name} cannot see this team's work.")
+        unowned = [{"issue": s.issue_key, "summary": s.summary, "points": s.points, "suggested_owner": s.assignee_name}
+                   for s in await app.state.auto.suggestions(body.actor)]
+        d = await digests.write(app.state.model, world, app.state.box.forecast(world), unowned)
+        app.state.audit.record("digest", body.actor, "-", revisions=d.revisions, problems_found=len(d.problems_found),
+                               problems_left=len(d.problems_left), usage=d.usage.model_dump())
+        u = d.usage
+        return {"text": d.text, "revisions": d.revisions, "problems_found": [p.model_dump() for p in d.problems_found],
+                "problems_left": [p.model_dump() for p in d.problems_left],
+                "usage": {"calls": u.calls, "tokens": u.input + u.cache_read + u.cache_write + u.output, "usd": round(u.usd, 5)}}
 
     def reply(thread: str, result) -> dict:
         u = result.usage

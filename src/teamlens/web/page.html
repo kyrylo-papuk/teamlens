@@ -143,7 +143,7 @@
       <h2>Ask the agent</h2>
       <textarea id="text" placeholder="Ask about the team, or ask for a change in Jira"></textarea>
       <div class="row examples" id="examples"></div>
-      <div class="row"><button class="primary" id="send">Send</button><span class="meta" id="busy"></span></div>
+      <div class="row"><button class="primary" id="send">Send</button><button id="digest">Morning digest</button><span class="meta" id="busy"></span></div>
       <div id="result"></div>
     </section>
     <section>
@@ -235,6 +235,7 @@ async function loadAudit() {
       : e.kind === "auto_assign" ? `${d.issue} → ${d.assignee || "nobody"}: ${d.reason}` : e.kind === "autoassign_mode" ? `mode ${d.mode}`
       : e.kind === "role_granted" ? `${d.role} → ${d.employee}` : e.kind === "role_revoked" ? `${d.role} taken from ${d.employee}`
       : e.kind === "role_defined" ? `${d.role}: ${d.rights.join(", ")}` : e.kind === "role_deleted" ? d.role
+      : e.kind === "digest" ? `checked, ${d.problems_found} found, ${d.problems_left} left`
       : e.kind === "auto_assign_undone" ? `${d.issue} unassigned` : e.kind === "issue_created" ? `${d.issue} ${d.summary}` : d.outcome;
     return `<div class="entry"><span class="t">${esc(e.at.slice(11, 19))}</span><span class="kind">${esc(e.kind)}</span>
       <span class="d" title="${esc(detail)}">${esc(e.actor)} · ${esc(detail)}</span></div>`;
@@ -362,6 +363,19 @@ const decide = approved => run(() => api("/api/decide", {actor: $("actor").value
   };
   for (const id of ["unowned", "recent"]) $(id).onclick = e => { if (e.target.dataset.act) act(e.target.dataset.act, e.target.dataset.key); };
   $("send").onclick = send;
+  $("digest").onclick = async () => {
+    $("send").disabled = $("digest").disabled = true; $("busy").textContent = "writing and checking…";
+    try {
+      const d = await api("/api/digest", {actor: $("actor").value});
+      const fixed = d.problems_found.length - d.problems_left.length;
+      const note = d.problems_left.length ? `<span class="tag bad">${d.problems_left.length} statement(s) could not be verified</span>`
+        : d.problems_found.length ? `<span class="tag ok">checked against the data · ${fixed} statement(s) corrected</span>`
+        : `<span class="tag ok">checked against the data · nothing to correct</span>`;
+      $("result").innerHTML = `<div class="answer">${markdown(d.text)}</div><div class="meta">${note} · ${d.usage.calls} model calls · ${d.usage.tokens} tokens · $${d.usage.usd}</div>`;
+    } catch (e) { $("result").innerHTML = `<div class="answer">${esc(e.message)}</div>`; }
+    $("send").disabled = $("digest").disabled = false; $("busy").textContent = "";
+    loadAudit();
+  };
   $("text").onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); };
   refresh();
 })();
