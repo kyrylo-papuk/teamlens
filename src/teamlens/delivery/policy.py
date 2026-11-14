@@ -19,6 +19,15 @@ MAX_STEPS = 8
 MAX_SUMMARY = 200
 PlanTool = Literal["assign_issue", "transition_issue", "create_issue"]
 
+# The same rules in words, shown to the model so it can refuse up front instead of learning them by being refused.
+# The code below is what decides; this text only saves a round trip.
+RULES = f"""- Only the team's engineering manager can change issues, and only issues of their own team.
+- An issue that is Done cannot be changed. Moving an issue to Done is for the person who did the work, never for you.
+- Work can be assigned only to a member of the same team who is at work today.
+- An assignment must not take a person above {OVERLOAD_RATIO:.0%} of their sprint capacity.
+- New issues are created unassigned, in the backlog.
+- A plan has at most {MAX_STEPS} steps."""
+
 
 class Step(BaseModel):
     tool: PlanTool
