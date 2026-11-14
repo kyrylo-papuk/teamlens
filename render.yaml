@@ -1,0 +1,24 @@
+# A public demo on Render: one container, the fictional company held in memory.
+#
+# The demo has no login, so three things are set on purpose:
+#   - TEAMLENS_FAKE=1: no real Jira and no real people are behind it
+#   - a daily cap on requests that reach the model, so a visitor cannot run up the bill
+#   - a notice at the top of the page saying what this is
+#
+# It runs as one process. The two-service layout (the People agent in its own container, reached over A2A) is
+# what docker-compose.yml starts; a free instance that sleeps is a poor host for a service another one calls.
+services:
+  - type: web
+    name: teamlens
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/people
+    envVars:
+      - key: TEAMLENS_FAKE
+        value: "1"
+      - key: TEAMLENS_DAILY_MODEL_REQUESTS
+        value: "200"
+      - key: TEAMLENS_NOTICE
+        value: "Public demo on a fictional company. Data is shared between visitors and resets when the service restarts."
+      - key: ANTHROPIC_API_KEY
+        sync: false  # asked for when the blueprint is created; without it the agent is off and the rest works

@@ -15,6 +15,7 @@ import logging
 import os
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
 import anthropic
@@ -96,8 +97,25 @@ class RoleDefine(BaseModel):
     rights: list[str] = []
 
 
+class DailyBudget:
+    """Counts the requests that reach the model and refuses once the day's allowance is used."""
+
+    def __init__(self, allowance: int) -> None:
+        self._allowance, self._day, self._used = allowance, "", 0
+
+    def spend(self) -> None:
+        today = datetime.now(UTC).date().isoformat()
+        if today != self._day:
+            self._day, self._used = today, 0
+        if self._allowance and self._used >= self._allowance:
+            raise HTTPException(429, "This demo has used its model allowance for today. Everything that does not "
+                                     "need the model still works; the allowance resets at midnight UTC.")
+        self._used += 1
+
+
 def create_app(model: Model | None = None, fake: bool | None = None, audit_path: Path | None = None,
-               triage: Triage | None = None, state_path: Path | None = None) -> FastAPI:
+               triage: Triage | None = None, state_path: Path | None = None, daily_model_requests: int | None = None
+               ) -> FastAPI:
     """Passing a scripted ``model`` marks a test: no embedding model, no tracing, and conversation state in
     memory unless ``state_path`` is given."""
     s = Settings()
@@ -169,6 +187,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             await jira.aclose()
 
     app = FastAPI(title="TeamLens", lifespan=lifespan)
+    budget = DailyBudget(s.teamlens_daily_model_requests if daily_model_requests is None else daily_model_requests)
 
     @app.get("/", response_class=HTMLResponse)
     async def page() -> str:
@@ -179,6 +198,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         """Who can be picked in the "working as" switch."""
         team = await app.state.people.team(app.state.team)
         return {"team": app.state.team, "source": app.state.source, "tracing": app.state.tracing.enabled,
+                "notice": s.teamlens_notice,
                 "people": [{"id": p.id, "name": p.name, "role": p.role} for p in team]}
 
     @app.get("/api/overview")
@@ -202,6 +222,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         world = await guarded(app.state.box.world(body.actor))
         if "overview.view" not in world.rights:
             raise HTTPException(403, f"{world.actor.name} cannot see this team's work.")
+        budget.spend()
         unowned = [{"issue": s.issue_key, "summary": s.summary, "points": s.points, "suggested_owner": s.assignee_name}
                    for s in await app.state.auto.suggestions(body.actor)]
         with app.state.tracing.request("digest", f"digest-{world.overview.today}", body.actor) as trace:
@@ -222,8 +243,9 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
 
     @app.post("/api/ask")
     async def ask(body: Ask) -> dict:
+        budget.spend()
         thread = uuid.uuid4().hex[:8]
-        return reply(thread, await guarded(app.state.agent.ask(body.actor, body.text, thread)))
+        return reply(thread, await guarded(app.state.agent.ask(body.actor, body.text[:2000], thread)))
 
     @app.post("/api/decide")
     async def decide(body: Decide) -> dict:
@@ -285,6 +307,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         verdict = check([Step(tool="create_issue", summary=body.summary, reason="created from the page")], world)[0]
         if not verdict.allowed:
             raise HTTPException(403, verdict.reason)
+        budget.spend()  # a new ticket is triaged by the model
         issue = await guarded(app.state.box.create_in_sprint(world.actor.team, body.summary.strip(),
                                                              max(0, min(body.points, 13))))
         app.state.audit.record("issue_created", body.actor, "-", issue=issue.key, summary=issue.summary)

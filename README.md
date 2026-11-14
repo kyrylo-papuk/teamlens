@@ -193,7 +193,7 @@ to the host. Without a model key everything that is plain code works and the age
 ```bash
 python -m venv .venv && .venv/Scripts/activate        # or: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                             # 82 tests, no keys, no network
+pytest -q                                             # 83 tests, no keys, no network
 TEAMLENS_FAKE=1 python -m teamlens.web                # the page on the fictional company
 ```
 
@@ -205,6 +205,10 @@ python -m teamlens.live seed        # fills an empty project with one team's spr
 python -m teamlens.web              # http://localhost:8000
 python -m teamlens.delivery "Who is at risk this sprint and why?"
 ```
+
+**A public demo** on Render: `render.yaml` describes one container running the fictional company. Because the
+demo has no login, it caps the requests per day that reach the model (`TEAMLENS_DAILY_MODEL_REQUESTS`) and shows
+a notice at the top of the page; over the cap the agent answers 429 and the plain-code features keep working.
 
 **Evaluations** (these call the model and cost a few cents; the judge about $0.50):
 

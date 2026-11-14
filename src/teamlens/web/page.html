@@ -90,6 +90,8 @@
   .flegend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
   .flegend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
   .flegend #fcommitted { margin-left: auto; }
+  #notice { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); padding: 8px 24px; font-size: 13px;
+            border-bottom: 1px solid var(--line); }
   .entry .kind { font-weight: 600; } .entry .t { color: var(--muted); }
   .entry .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
@@ -100,6 +102,7 @@
   <span class="src" id="src"></span>
   <label class="who">Working as <select id="actor"></select></label>
 </header>
+<div id="notice" hidden></div>
 <main>
   <div>
     <section>
@@ -346,6 +349,7 @@ const decide = approved => run(() => api("/api/decide", {actor: $("actor").value
 (async () => {
   const p = await api("/api/people");
   $("src").textContent = `team ${p.team} · ${p.source}`;
+  if (p.notice) { $("notice").textContent = p.notice; $("notice").hidden = false; }
   $("actor").innerHTML = p.people.map(x => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.role)}</option>`).join("");
   $("examples").innerHTML = EXAMPLES.map(t => `<button>${esc(t)}</button>`).join("");
   $("examples").onclick = e => { if (e.target.tagName === "BUTTON") $("text").value = e.target.textContent; };

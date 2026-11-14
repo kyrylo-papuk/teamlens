@@ -13,5 +13,9 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""  # tracing is off unless both keys are set
     langfuse_secret_key: str = ""
     langfuse_host: str = ""
+    # A public demo has no login, so anyone can make it call the model. This caps the requests per day that do;
+    # 0 means no cap (local use).
+    teamlens_daily_model_requests: int = 0
+    teamlens_notice: str = ""  # one line shown at the top of the page, e.g. "Public demo on fictional data"
     people_agent_url: str = "http://localhost:9101/"
     people_agent_token: str = "dev-only-token"  # set a real secret outside local runs

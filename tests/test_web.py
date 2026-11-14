@@ -122,3 +122,16 @@ def test_model_outage_is_reported_and_the_rest_keeps_working(tmp_path):
         assert failed.status_code == 503 and "language model is not available" in failed.json()["detail"]
         assert http.get("/api/overview", params={"actor": MANAGER}).status_code == 200
         assert http.post("/api/issues", json={"actor": MANAGER, "summary": "Still works", "points": 1}).status_code == 200
+
+
+def test_public_demo_caps_requests_that_reach_the_model(tmp_path):
+    app = create_app(ScriptedModel([say("one"), say("two")]), fake=True, audit_path=tmp_path / "audit.jsonl", daily_model_requests=2)
+    with TestClient(app) as http:
+        ask = {"actor": MANAGER, "text": "Anyone overloaded?"}
+        assert http.post("/api/ask", json=ask).json()["answer"] == "one"
+        assert http.post("/api/ask", json=ask).json()["answer"] == "two"
+        refused = http.post("/api/ask", json=ask)
+        assert refused.status_code == 429 and "allowance for today" in refused.json()["detail"]
+        assert http.post("/api/digest", json={"actor": MANAGER}).status_code == 429
+        assert http.get("/api/overview", params={"actor": MANAGER}).status_code == 200  # plain code is not capped
+        assert http.get("/api/people").json()["notice"] == ""
