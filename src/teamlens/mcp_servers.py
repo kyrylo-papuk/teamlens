@@ -36,7 +36,7 @@ def _expected(fn):
 
 
 def jira_server(jira: Jira) -> MCPServer:
-    server = MCPServer("jira", instructions="Read and change Jira issues.")
+    server = MCPServer("jira", instructions="Read and change Jira issues.", log_level="WARNING")
 
     @server.tool(annotations=READ)
     @_expected
@@ -82,7 +82,7 @@ def jira_server(jira: Jira) -> MCPServer:
 
 def hrm_server(hrm: Hrm, today: date, period_start: date, period_end: date) -> MCPServer:
     """Only the People agent connects to this server: one of its tools returns restricted data."""
-    server = MCPServer("hrm", instructions="Employee directory, availability and absence records.")
+    server = MCPServer("hrm", instructions="Employee directory, availability and absence records.", log_level="WARNING")
 
     @server.tool(annotations=READ)
     async def list_people(team: str | None = None) -> list[Person]:
