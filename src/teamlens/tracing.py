@@ -10,6 +10,11 @@ The replacement is not left to the call sites. It is registered as the client's 
 which the SDK applies to every input, output and metadata value, so a new span added later is
 covered without anyone remembering to mask it.
 
+That function only sees spans this code creates. Libraries underneath (the Anthropic SDK, the MCP
+client) emit OpenTelemetry spans of their own, which the Langfuse client would export as well and
+which the mask never touches. So the client is told to export this code's spans only. Today those
+library spans carry no content; the filter is there so that this stays true whatever they add.
+
 Without Langfuse keys nothing is traced and every call here is a no-op.
 """
 
@@ -55,6 +60,14 @@ class Masker:
         return data
 
 
+def client(public_key: str, secret_key: str, host: str, masker: Masker, **options: Any):
+    """A Langfuse client that masks everything it writes and exports nothing written by anyone else."""
+    from langfuse import Langfuse, is_langfuse_span
+
+    return Langfuse(public_key=public_key, secret_key=secret_key, host=host or None, mask=masker,
+                    should_export_span=is_langfuse_span, **options)
+
+
 class _Nothing:
     def update(self, **_: Any) -> None:
         return None
@@ -68,10 +81,8 @@ class Tracing:
     def from_settings(cls, public_key: str, secret_key: str, host: str) -> "Tracing":
         if not (public_key and secret_key):
             return cls()
-        from langfuse import Langfuse
-
         masker = Masker()
-        return cls(Langfuse(public_key=public_key, secret_key=secret_key, host=host or None, mask=masker), masker)
+        return cls(client(public_key, secret_key, host, masker), masker)
 
     @property
     def enabled(self) -> bool:

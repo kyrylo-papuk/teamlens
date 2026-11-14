@@ -1,8 +1,8 @@
 import json
 from contextlib import asynccontextmanager
 
-from langfuse import Langfuse
 from mcp import Client
+from opentelemetry import trace as otel
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from teamlens.delivery.agent import DeliveryAgent
@@ -14,7 +14,7 @@ from teamlens.jira import FakeJira
 from teamlens.mcp_servers import jira_server
 from teamlens.people import LocalPeople
 from teamlens.seed import generate
-from teamlens.tracing import MAX_CHARS, Masker, Tracing
+from teamlens.tracing import MAX_CHARS, Masker, Tracing, client
 
 C = generate()
 PEOPLE = Hrm(C.employees, C.absences).people("PAY")
@@ -50,8 +50,7 @@ def test_tracing_is_a_no_op_without_keys():
 async def traced(tmp_path):
     exporter, masker = InMemorySpanExporter(), Masker()
     # The SDK keeps one client per public key, so each test uses its own key to get its own exporter.
-    client = Langfuse(public_key=f"pk-{tmp_path.name}", secret_key="sk-test", span_exporter=exporter, mask=masker)
-    tracing = Tracing(client, masker)
+    tracing = Tracing(client(f"pk-{tmp_path.name}", "sk-test", "", masker, span_exporter=exporter), masker)
     people = LocalPeople(Hrm(C.employees, C.absences), C.today, C.sprint_start, C.sprint_end)
     async with Client(jira_server(FakeJira(C.issues, C.today))) as mcp:
         box = Toolbox(mcp, people, C.today, tracing=tracing)
@@ -88,3 +87,15 @@ async def test_answer_text_from_the_model_is_masked_too(tmp_path):
         assert AWAY.name in result.answer  # the person asking still gets names; only the trace is masked
         _, text = exported()
         assert AWAY.name not in text and f"{AWAY.id} is away until Friday; {FREE.id} can help." in text
+
+
+async def test_spans_from_other_libraries_are_not_exported(tmp_path):
+    """The mask cannot see a span it did not create, so such a span must not leave the process at all."""
+    async with traced(tmp_path) as (box, _, exported):
+        with box.tracing.request("ask", "thread-3", MANAGER.id, input="hello"):
+            with otel.get_tracer("some.library").start_as_current_span("library.call") as foreign:
+                foreign.set_attribute("gen_ai.prompt", f"{AWAY.name} is away")  # what an LLM library might record
+            with box.tracing.observe("ours", "tool", input="x"):
+                pass
+        names, text = exported()
+        assert "ours" in names and "library.call" not in names and AWAY.name not in text
