@@ -1,0 +1,55 @@
+# Two services, as in the design: the Delivery side (web page, agent, Jira) and the People agent, which alone
+# holds HR data and is reached over A2A with a bearer token.
+#
+#   docker compose up --build        http://localhost:8000
+#
+# It runs on the fictional company, in memory, so it needs no Jira. Without ANTHROPIC_API_KEY everything that is
+# plain code still works (overview, forecast, automatic assignment, roles, audit); asking the agent returns a clear
+# "model not available". Put the key in .env or in the environment to enable the agent.
+
+x-app: &app
+  build: .
+  restart: unless-stopped
+
+services:
+  people-agent:
+    <<: *app
+    command: ["python", "-m", "teamlens.people_agent"]
+    environment:
+      TEAMLENS_FAKE: "1"
+      PEOPLE_AGENT_URL: http://people-agent:9101/
+      PEOPLE_AGENT_TOKEN: ${PEOPLE_AGENT_TOKEN:-dev-only-token}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:9101/.well-known/agent-card.json')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    # Not published: only the Delivery side may talk to it.
+
+  web:
+    <<: *app
+    environment:
+      TEAMLENS_FAKE: "1"
+      TEAMLENS_A2A: "1"
+      PEOPLE_AGENT_URL: http://people-agent:9101/
+      PEOPLE_AGENT_TOKEN: ${PEOPLE_AGENT_TOKEN:-dev-only-token}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
+    ports:
+      - "8000:8000"
+    volumes:
+      - teamlens-data:/app/data  # audit log, roles, team settings, paused conversations
+    depends_on:
+      people-agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/api/people')"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+volumes:
+  teamlens-data:

@@ -14,9 +14,10 @@ import asyncio
 import logging
 import os
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
+import anthropic
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -96,7 +97,9 @@ class RoleDefine(BaseModel):
 
 
 def create_app(model: Model | None = None, fake: bool | None = None, audit_path: Path | None = None,
-               triage: Triage | None = None) -> FastAPI:
+               triage: Triage | None = None, state_path: Path | None = None) -> FastAPI:
+    """Passing a scripted ``model`` marks a test: no embedding model, no tracing, and conversation state in
+    memory unless ``state_path`` is given."""
     s = Settings()
     fake = os.environ.get("TEAMLENS_FAKE") == "1" if fake is None else fake
 
@@ -115,7 +118,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             people = A2APeople(http, c.today, c.sprint_start, c.sprint_end, only=only)
         else:
             people = LocalPeople(Hrm(c.employees, c.absences), c.today, c.sprint_start, c.sprint_end, only=only)
-        async with Client(jira_server(jira)) as client:
+        async with AsyncExitStack() as stack:
+            client = await stack.enter_async_context(Client(jira_server(jira)))
             app.state.team = s.jira_team_key
             app.state.people = people
             app.state.audit = AuditLog(audit_path or Path("data/audit.jsonl"))
@@ -128,7 +132,14 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             app.state.tracing = tracing
             app.state.box = Toolbox(client, people, c.today, app.state.access, finder, tracing)
             app.state.model = model or ClaudeModel(api_key=s.anthropic_api_key, tracing=tracing)
-            app.state.agent = DeliveryAgent(app.state.model, app.state.box, app.state.audit, c.today)
+            # A real run keeps paused conversations in SQLite, so a plan waiting for approval survives a restart.
+            saved, checkpointer = state_path or (None if model is not None else Path("data/state.sqlite")), None
+            if saved:
+                from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+                saved.parent.mkdir(parents=True, exist_ok=True)
+                checkpointer = await stack.enter_async_context(AsyncSqliteSaver.from_conn_string(str(saved)))
+            app.state.agent = DeliveryAgent(app.state.model, app.state.box, app.state.audit, c.today, checkpointer)
             app.state.source = "in-memory demo data" if fake else s.jira_base_url
             settings_path = audit_path.with_name("team_settings.json") if audit_path else Path("data/team_settings.json")
             # Tests pass their own classifier or none; a real run uses the trained model if there is one.
@@ -194,7 +205,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         unowned = [{"issue": s.issue_key, "summary": s.summary, "points": s.points, "suggested_owner": s.assignee_name}
                    for s in await app.state.auto.suggestions(body.actor)]
         with app.state.tracing.request("digest", f"digest-{world.overview.today}", body.actor) as trace:
-            d = await digests.write(app.state.model, world, app.state.box.forecast(world), unowned)
+            d = await guarded(digests.write(app.state.model, world, app.state.box.forecast(world), unowned))
             trace.update(output={"text": d.text, "revisions": d.revisions, "problems_found": len(d.problems_found)})
         app.state.audit.record("digest", body.actor, "-", revisions=d.revisions, problems_found=len(d.problems_found),
                                problems_left=len(d.problems_left), usage=d.usage.model_dump())
@@ -212,11 +223,11 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
     @app.post("/api/ask")
     async def ask(body: Ask) -> dict:
         thread = uuid.uuid4().hex[:8]
-        return reply(thread, await app.state.agent.ask(body.actor, body.text, thread))
+        return reply(thread, await guarded(app.state.agent.ask(body.actor, body.text, thread)))
 
     @app.post("/api/decide")
     async def decide(body: Decide) -> dict:
-        return reply(body.thread, await app.state.agent.decide(body.thread, body.approved, body.actor))
+        return reply(body.thread, await guarded(app.state.agent.decide(body.thread, body.approved, body.actor)))
 
     # --- automatic assignment: plain code, no model ------------------------------------------
 
@@ -227,6 +238,9 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             raise HTTPException(403, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        except anthropic.APIError as exc:
+            raise HTTPException(503, "The language model is not available. Check ANTHROPIC_API_KEY. "
+                                     "Everything that does not need a model still works.") from exc
         except ToolFailure as exc:
             raise HTTPException(503, str(exc)) from exc
 

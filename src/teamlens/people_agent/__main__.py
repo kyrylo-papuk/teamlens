@@ -25,7 +25,8 @@ async def main() -> None:
     async with Client(hrm_server(hrm, c.today, c.sprint_start, c.sprint_end)) as hrm_client:
         advisor = build_advisor(hrm_client, s.anthropic_api_key, c.today) if s.anthropic_api_key else None
         app = build_app(hrm, c.today, tokens, s.people_agent_url, advisor)
-        await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=9101, log_level="warning")).serve()
+        host = os.environ.get("TEAMLENS_HOST", "127.0.0.1")  # a container sets 0.0.0.0
+        await uvicorn.Server(uvicorn.Config(app, host=host, port=9101, log_level="warning")).serve()
 
 
 if __name__ == "__main__":

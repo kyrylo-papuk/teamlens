@@ -89,3 +89,36 @@ def test_roles_through_the_api(tmp_path):
         assert http.post("/api/roles/delete", json={"actor": MANAGER, "name": "tech-lead"}).json() == {"ok": True}
         kinds = [e["kind"] for e in http.get("/api/audit").json()["entries"]][::-1]
         assert kinds == ["role_defined", "role_granted", "role_revoked", "role_deleted"]
+
+
+def test_a_plan_waiting_for_approval_survives_a_restart(tmp_path):
+    step = {"tool": "assign_issue", "issue_key": ISSUE, "assignee_id": FREE, "status": None, "summary": None, "reason": "cover"}
+    paths = {"audit_path": tmp_path / "audit.jsonl", "state_path": tmp_path / "state.sqlite"}
+    first = create_app(ScriptedModel([call("propose_plan", _id="p1", summary="Cover", steps=[step])]), fake=True, **paths)
+    with TestClient(first) as http:
+        waiting = http.post("/api/ask", json={"actor": MANAGER, "text": "Cover for Anton"}).json()
+        assert waiting["outcome"] == "needs_approval"
+
+    restarted = create_app(ScriptedModel([]), fake=True, **paths)  # a new process: nothing in memory, no model replies left
+    with TestClient(restarted) as http:
+        done = http.post("/api/decide", json={"actor": MANAGER, "thread": waiting["thread"], "approved": True}).json()
+        assert done["outcome"] == "executed"
+        o = http.get("/api/overview", params={"actor": MANAGER}).json()
+        assert ISSUE in next(x for x in o["loads"] if x["employee_id"] == FREE)["open_issues"]
+        kinds = [e["kind"] for e in http.get("/api/audit").json()["entries"]][::-1]
+        assert kinds == ["request", "plan_proposed", "approval", "step", "outcome"]  # one unbroken record across both
+
+
+def test_model_outage_is_reported_and_the_rest_keeps_working(tmp_path):
+    import anthropic
+    import httpx
+
+    class Down:
+        async def respond(self, system, messages, tools):
+            raise anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+
+    with TestClient(create_app(Down(), fake=True, audit_path=tmp_path / "audit.jsonl")) as http:
+        failed = http.post("/api/ask", json={"actor": MANAGER, "text": "Anyone overloaded?"})
+        assert failed.status_code == 503 and "language model is not available" in failed.json()["detail"]
+        assert http.get("/api/overview", params={"actor": MANAGER}).status_code == 200
+        assert http.post("/api/issues", json={"actor": MANAGER, "summary": "Still works", "points": 1}).status_code == 200
