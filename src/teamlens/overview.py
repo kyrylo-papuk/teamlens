@@ -93,8 +93,7 @@ def from_company(team: str | None = None) -> Overview:
     return build(people, availability, c.issues, c.today)
 
 
-if __name__ == "__main__":
-    o = from_company(sys.argv[1] if len(sys.argv) > 1 else None)
+def show(o: Overview) -> None:
     print(f"{'team':5}{'person':22}{'role':21}{'open':>5}{'pts':>5}{'cap':>6}{'load':>6}  status")
     for x in o.loads:
         av = x.availability
@@ -105,3 +104,7 @@ if __name__ == "__main__":
     print(f"\n{len(o.findings)} finding(s):")
     for f in o.findings:
         print(f"  [{f.kind}] {f.detail}")
+
+
+if __name__ == "__main__":
+    show(from_company(sys.argv[1] if len(sys.argv) > 1 else None))

@@ -13,9 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-TODAY = date(2026, 11, 16)  # fixed "now" of the fictional company
-SPRINT_START = TODAY - timedelta(days=7)
-SPRINT_END = TODAY + timedelta(days=6)
+TODAY = date(2026, 11, 16)  # fixed "now" of the fictional company; the live demo passes the real date
 
 TEAMS = {"PAY": "Payments", "LED": "Ledger", "KYC": "Onboarding", "MOB": "Mobile", "PLT": "Platform"}
 OTHER_DEPARTMENTS = ["Sales", "Compliance", "Finance", "People", "Support", "Marketing", "Operations"]
@@ -66,15 +64,15 @@ class Issue(BaseModel):
 
 class Company(BaseModel):
     today: date
-    sprint_start: date = SPRINT_START
-    sprint_end: date = SPRINT_END
+    sprint_start: date
+    sprint_end: date
     employees: list[Employee]
     absences: list[Absence]
     issues: list[Issue]
     planted: dict[str, list[str]]  # anomaly name -> employee ids or issue keys
 
 
-def generate(seed: int = 7) -> Company:
+def generate(seed: int = 7, today: date = TODAY) -> Company:
     rng = random.Random(seed)
     names = [f"{f} {l}" for f in FIRST for l in LAST]
     rng.shuffle(names)
@@ -106,11 +104,11 @@ def generate(seed: int = 7) -> Company:
     on_leave, terminated, overloaded, idle = (by_team[k][i] for k, i in
                                               [("PAY", 0), ("LED", 1), ("KYC", 2), ("MOB", 3)])
     terminated.status = "terminated"
-    absences = [Absence(employee_id=on_leave.id, start=TODAY - timedelta(days=2),
-                        end=TODAY + timedelta(days=5), reason="sick")]
+    absences = [Absence(employee_id=on_leave.id, start=today - timedelta(days=2),
+                        end=today + timedelta(days=5), reason="sick")]
     for e in rng.sample(engineers, 6):  # ordinary absences outside the sprint
         if e not in (on_leave, terminated, overloaded, idle):
-            start = TODAY + timedelta(days=rng.randrange(20, 50))
+            start = today + timedelta(days=rng.randrange(20, 50))
             absences.append(Absence(employee_id=e.id, start=start, end=start + timedelta(days=4),
                                     reason="vacation"))
 
@@ -120,7 +118,7 @@ def generate(seed: int = 7) -> Company:
     def issue(project: str, assignee: Employee | None, status: str, points: int,
               in_sprint: bool = True, stale_days: int | None = None) -> Issue:
         counters[project] += 1
-        updated = TODAY - timedelta(days=stale_days if stale_days is not None else rng.randrange(0, 4))
+        updated = today - timedelta(days=stale_days if stale_days is not None else rng.randrange(0, 4))
         it = Issue(
             key=f"{project}-{counters[project]}", project=project,
             summary=f"{rng.choice(WORK)} {rng.choice(AREAS)}", type=rng.choice(["Story", "Bug", "Task"]),
@@ -151,7 +149,8 @@ def generate(seed: int = 7) -> Company:
         issue("KYC", overloaded, "In Progress", 8)
     planted["stale_in_progress"] = [issue("PLT", by_team["PLT"][0], "In Progress", 3, stale_days=12).key]
 
-    return Company(today=TODAY, employees=employees, absences=absences, issues=issues, planted=planted)
+    return Company(today=today, sprint_start=today - timedelta(days=7), sprint_end=today + timedelta(days=6),
+                   employees=employees, absences=absences, issues=issues, planted=planted)
 
 
 def write(company: Company, out_dir: Path) -> None:
