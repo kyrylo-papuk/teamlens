@@ -21,6 +21,7 @@ from teamlens.jira import STATUSES
 from teamlens.overview import build
 from teamlens.people import People, PeopleAgentError
 from teamlens.seed import Issue
+from teamlens.similar import Finder, Match
 
 MAX_ROWS = 40  # issues shown per search; more than this and the model is told to narrow the filters
 
@@ -37,6 +38,14 @@ FORECAST_TOOL = {
                    "interval, from a regression fitted on past sprints. Use it for any question about whether the "
                    "sprint will be finished. Never estimate this yourself.",
     "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
+}
+
+SIMILAR_TOOL = {
+    "name": "find_similar_issues",
+    "description": "Open issues of the team that may already cover a given problem, even when worded differently. "
+                   "Call it before proposing a new issue, and tell the user about any match instead of creating a copy.",
+    "input_schema": {"type": "object", "properties": {"text": {"type": "string", "description": "Title of the new issue."}},
+                     "required": ["text"], "additionalProperties": False},
 }
 
 PEOPLE_TOOL = {
@@ -86,11 +95,17 @@ class ToolFailure(Exception):
 
 
 class Toolbox:
-    def __init__(self, jira: Client, people: People, today: date, access: Access | None = None) -> None:
+    def __init__(self, jira: Client, people: People, today: date, access: Access | None = None,
+                 finder: Finder | None = None) -> None:
         self._jira, self._people, self._today = jira, people, today
+        self.finder = finder or Finder()  # words only unless an embedder is passed in
         self.access = access or Access()  # without a store: the role each HR record implies
         self._fit: Fit | None = None
         self._read_tools: list[dict] | None = None
+
+    def similar(self, text: str, world: World) -> list[Match]:
+        """Open issues of the team that look like ``text``."""
+        return self.finder.search(text, [(i.key, i.summary) for i in world.issues.values() if i.status != "Done"])
 
     def forecast(self, world: World) -> Forecast:
         self._fit = self._fit or default_fit()
@@ -106,7 +121,7 @@ class Toolbox:
                 if t.annotations is not None and t.annotations.read_only_hint
             ]
         delegate = [PEOPLE_TOOL] if hasattr(self._people, "ask") else []  # only when People is another agent
-        return [OVERVIEW_TOOL, FORECAST_TOOL, *self._read_tools, *delegate, PLAN_TOOL]
+        return [OVERVIEW_TOOL, FORECAST_TOOL, SIMILAR_TOOL, *self._read_tools, *delegate, PLAN_TOOL]
 
     async def _call_jira(self, name: str, arguments: dict):
         result = await self._jira.call_tool(name, arguments)
@@ -143,6 +158,9 @@ class Toolbox:
             findings = [{"kind": f.kind, "employee_id": f.employee_id, "issues": f.issue_keys, "detail": f.detail}
                         for f in overview.findings]
             return json.dumps({"today": str(overview.today), "people": people, "findings": findings}, ensure_ascii=False)
+        if name == SIMILAR_TOOL["name"]:
+            found = self.similar(arguments["text"], await self.world(actor_id))
+            return json.dumps({"possible_duplicates": [m.model_dump() for m in found]}, ensure_ascii=False)
         if name == FORECAST_TOOL["name"]:
             return self.forecast(await self.world(actor_id)).model_dump_json()
         if name == PEOPLE_TOOL["name"] and hasattr(self._people, "ask"):

@@ -115,7 +115,7 @@ async def test_model_is_never_offered_write_tools(tmp_path):
     async with env(tmp_path) as (_, _, _, agent):
         a, model = agent(call("assign_issue", key=AWAY_ISSUE, assignee_id=FREE), say("I need to use a plan."))
         await a.ask(MANAGER, "Reassign it", "t1")
-        assert {t["name"] for t in model.tools} == {"team_overview", "sprint_forecast", "get_issue", "search_issues", "propose_plan"}
+        assert {t["name"] for t in model.tools} == {"team_overview", "sprint_forecast", "find_similar_issues", "get_issue", "search_issues", "propose_plan"}
         refused = model.seen[1][-1]["content"][0]
         assert refused["is_error"] and "propose_plan" in refused["content"]
 

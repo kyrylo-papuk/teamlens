@@ -130,6 +130,7 @@
       <div class="row"><input id="newsum" placeholder="New task for the team, added to the sprint"><select id="newpts">
         <option>1</option><option selected>2</option><option>3</option><option>5</option><option>8</option></select>
         <button id="newadd">Add to sprint</button></div>
+      <div id="dupes"></div>
       <div class="meta" id="newinfo"></div>
     </section>
     <section>
@@ -291,13 +292,23 @@ async function setMode(mode) {
   try { await api("/api/autoassign/mode", {actor: $("actor").value, mode}); } catch (e) { $("newinfo").textContent = e.message; }
   refresh();
 }
+async function checkDuplicates() {
+  const text = $("newsum").value.trim();
+  if (text.length < 8) { $("dupes").innerHTML = ""; return; }
+  try {
+    const r = await api("/api/similar", {actor: $("actor").value, text});
+    if (text !== $("newsum").value.trim()) return;  // the user kept typing; this answer is stale
+    $("dupes").innerHTML = r.matches.length ? `<div class="sug"><div><span class="tag warn">may already exist</span></div><span></span>
+      <div class="why">${r.matches.map(m => `<b>${esc(m.key)}</b> ${esc(m.summary)} · similarity ${m.similarity}`).join("<br>")}</div></div>` : "";
+  } catch (e) { $("dupes").innerHTML = ""; }
+}
 async function addIssue() {
   const summary = $("newsum").value.trim(); if (!summary) return;
   try {
     const r = await api("/api/issues", {actor: $("actor").value, summary, points: +$("newpts").value});
     const done = r.applied.find(a => a.issue_key === r.issue_key);
     $("newinfo").textContent = `${r.issue_key} created.` + (done ? " " + done.detail : "");
-    $("newsum").value = "";
+    $("newsum").value = ""; $("dupes").innerHTML = "";
   } catch (e) { $("newinfo").textContent = e.message; }
   refresh();
 }
@@ -340,6 +351,8 @@ const decide = approved => run(() => api("/api/decide", {actor: $("actor").value
   $("actor").onchange = () => { $("result").innerHTML = ""; $("newinfo").textContent = ""; refresh(); };
   $("modes").onclick = e => { if (e.target.dataset.mode) setMode(e.target.dataset.mode); };
   $("newadd").onclick = addIssue;
+  let typing;
+  $("newsum").oninput = () => { clearTimeout(typing); typing = setTimeout(checkDuplicates, 450); };
   $("members").onchange = e => { if (e.target.tagName === "SELECT" && e.target.value) roleAction("grant", {employee_id: e.target.dataset.who, role: e.target.value}); };
   for (const id of ["members", "roles", "roleform"]) $(id).onclick = e => {
     const d = e.target.dataset;

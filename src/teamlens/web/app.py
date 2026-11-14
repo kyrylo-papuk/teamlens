@@ -38,6 +38,7 @@ from teamlens.jira_cloud import JiraCloud
 from teamlens.mcp_servers import jira_server
 from teamlens.people import A2APeople, LocalPeople
 from teamlens.seed import generate
+from teamlens.similar import Finder, load_embedder
 from teamlens.triage import Triage, load as load_triage
 
 PAGE = Path(__file__).with_name("page.html")
@@ -68,6 +69,11 @@ class NewIssue(BaseModel):
     actor: str
     summary: str
     points: int = 1
+
+
+class Similar(BaseModel):
+    actor: str
+    text: str
 
 
 class RoleGrant(BaseModel):
@@ -108,7 +114,9 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             app.state.audit = AuditLog(audit_path or Path("data/audit.jsonl"))
             access_path = audit_path.with_name("access.json") if audit_path else Path("data/access.json")
             app.state.access = Access(access_path, audit=app.state.audit)
-            app.state.box = Toolbox(client, people, c.today, app.state.access)
+            # A scripted model means a test: skip loading the embedding model and search by words.
+            finder = Finder(load_embedder() if model is None else None)
+            app.state.box = Toolbox(client, people, c.today, app.state.access, finder)
             app.state.agent = DeliveryAgent(model or ClaudeModel(api_key=s.anthropic_api_key), app.state.box,
                                             app.state.audit, c.today)
             app.state.source = "in-memory demo data" if fake else s.jira_base_url
@@ -220,6 +228,11 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
     @app.post("/api/autoassign/undo")
     async def undo(body: OnIssue) -> dict:
         return (await guarded(app.state.auto.undo(body.actor, body.issue_key))).model_dump()
+
+    @app.post("/api/similar")
+    async def similar(body: Similar) -> dict:
+        world = await guarded(app.state.box.world(body.actor))
+        return {"mode": app.state.box.finder.mode, "matches": [m.model_dump() for m in app.state.box.similar(body.text, world)]}
 
     @app.post("/api/issues")
     async def new_issue(body: NewIssue) -> dict:
