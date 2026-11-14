@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TeamLens</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1c2330; --muted: #667085; --line: #e3e7ee;
+    --accent: #2f5fd0; --ok: #1f9d63; --warn: #c9861a; --bad: #d1463c; --chip: #eef1f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #12151b; --card: #1b2029; --ink: #e6e9ef; --muted: #96a0b3; --line: #2b323f;
+            --accent: #7ea2ff; --ok: #4cc38a; --warn: #e2a84b; --bad: #f0766c; --chip: #262d39; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: var(--card);
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: .2px; }
+  header .src { color: var(--muted); font-size: 12px; }
+  header .who { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); }
+  select, textarea, button { font: inherit; color: var(--ink); }
+  select { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; padding: 16px 24px 32px;
+         max-width: 1400px; margin: 0 auto; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; padding: 12px; } }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+       display: flex; align-items: center; gap: 8px; }
+  h2 .count { background: var(--chip); border-radius: 10px; padding: 0 8px; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 0 8px 8px 0; }
+  td { padding: 10px 8px 10px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  .name { font-weight: 600; } .role { color: var(--muted); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { background: var(--chip); border-radius: 6px; padding: 1px 7px; font-size: 12px; white-space: nowrap; }
+  .bar { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; min-width: 90px; }
+  .bar i { display: block; height: 100%; border-radius: 4px; }
+  .load { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; }
+  .tag { border-radius: 6px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
+  .tag.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .tag.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .tag.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+  .finding { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); align-items: baseline; }
+  .finding:first-of-type { border-top: 0; }
+  .empty { color: var(--muted); }
+  textarea { width: 100%; min-height: 72px; resize: vertical; background: var(--bg); border: 1px solid var(--line);
+             border-radius: 8px; padding: 10px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  button { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  .examples button { font-size: 12px; padding: 3px 9px; color: var(--muted); }
+  .answer { margin-top: 12px; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+  .answer ul { margin: 4px 0; padding-left: 20px; } .answer p { margin: 4px 0; }
+  .answer pre { margin: 6px 0; overflow-x: auto; font-size: 12px; }
+  .plan { margin-top: 12px; border: 1px solid var(--accent); border-radius: 8px; padding: 12px; }
+  .plan h3 { margin: 0 0 8px; font-size: 14px; }
+  .step { padding: 8px 0; border-top: 1px solid var(--line); }
+  .step .why { color: var(--muted); font-size: 12px; }
+  .meta { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .audit { max-height: 340px; overflow-y: auto; }
+  .entry { display: grid; grid-template-columns: 58px 92px 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line);
+           font-size: 12px; }
+  .entry .kind { font-weight: 600; } .entry .t { color: var(--muted); }
+  .entry .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>TeamLens</h1>
+  <span class="src" id="src"></span>
+  <label class="who">Working as <select id="actor"></select></label>
+</header>
+<main>
+  <div>
+    <section>
+      <h2>Team <span class="count" id="today"></span></h2>
+      <table>
+        <thead><tr><th>Person</th><th>Open issues</th><th>Sprint load</th><th>Status</th></tr></thead>
+        <tbody id="team"></tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Problems found <span class="count" id="nfind">0</span></h2>
+      <div id="findings"></div>
+    </section>
+    <section>
+      <h2>Unassigned backlog <span class="count" id="nback">0</span></h2>
+      <div class="chips" id="backlog"></div>
+    </section>
+  </div>
+  <div>
+    <section>
+      <h2>Ask the agent</h2>
+      <textarea id="text" placeholder="Ask about the team, or ask for a change in Jira"></textarea>
+      <div class="row examples" id="examples"></div>
+      <div class="row"><button class="primary" id="send">Send</button><span class="meta" id="busy"></span></div>
+      <div id="result"></div>
+    </section>
+    <section>
+      <h2>Audit log <span class="tag ok" id="chain"></span></h2>
+      <div class="audit" id="audit"></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const api = async (path, body) => {
+  const r = await fetch(path, body ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)} : {});
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+};
+const EXAMPLES = ["Who is at risk this sprint and why?", "Who has spare capacity?",
+                  "Reassign the work of whoever is away to people with capacity."];
+const KIND = {assigned_while_absent: ["away, owns work", "warn"], assigned_to_terminated: ["left, owns work", "bad"],
+              overloaded: ["overloaded", "bad"], idle: ["no work", "warn"], stale_in_progress: ["stale", "warn"]};
+let thread = null, issues = {}, names = {};
+
+function markdown(text) {
+  const out = []; let list = false, pre = false;
+  for (const raw of String(text).split("\n")) {
+    const line = esc(raw).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
+    const table = raw.trim().startsWith("|");
+    if (pre && !table) { out.push("</pre>"); pre = false; }
+    const item = raw.match(/^\s*(?:[-*]|\d+\.)\s+/);
+    if (list && !item) { out.push("</ul>"); list = false; }
+    if (table) { if (!pre) { out.push("<pre>"); pre = true; } out.push(esc(raw) + "\n"); }
+    else if (item) { if (!list) { out.push("<ul>"); list = true; } out.push("<li>" + line.replace(/^\s*(?:[-*]|\d+\.)\s+/, "") + "</li>"); }
+    else if (raw.trim()) out.push("<p>" + line.replace(/^#+\s*/, "") + "</p>");
+  }
+  if (list) out.push("</ul>"); if (pre) out.push("</pre>");
+  return out.join("");
+}
+
+async function loadOverview() {
+  const o = await api("/api/overview?actor=" + $("actor").value);
+  issues = o.issues;
+  names = Object.fromEntries(o.loads.map(x => [x.employee_id, x.name]));
+  $("today").textContent = o.today;
+  $("team").innerHTML = o.loads.map(x => {
+    const av = x.availability, pct = x.load == null ? 0 : Math.round(x.load * 100);
+    const color = pct > 150 ? "var(--bad)" : pct > 100 ? "var(--warn)" : "var(--ok)";
+    const status = !av.active ? '<span class="tag bad">left the company</span>'
+      : av.available_today ? '<span class="tag ok">at work</span>'
+      : `<span class="tag warn">away until ${esc(av.unavailable_until)}</span>`;
+    const chips = x.open_issues.map(k => `<span class="chip" title="${esc(issues[k]?.summary)} · ${esc(issues[k]?.status)}">${esc(k)}</span>`).join("");
+    return `<tr><td><div class="name">${esc(x.name)}</div><div class="role">${esc(x.role)} · ${esc(x.employee_id)}</div></td>
+      <td><div class="chips">${chips || '<span class="empty">none</span>'}</div></td>
+      <td><div class="bar"><i style="width:${Math.min(pct, 100)}%;background:${color}"></i></div>
+          <div class="load">${x.sprint_points} of ${x.capacity_points} pts${x.load == null ? "" : " · " + pct + "%"}</div></td>
+      <td>${status}</td></tr>`;
+  }).join("");
+  $("nfind").textContent = o.findings.length;
+  $("findings").innerHTML = o.findings.map(f => {
+    const [label, tone] = KIND[f.kind] || [f.kind, "warn"];
+    return `<div class="finding"><span class="tag ${tone}">${label}</span><span>${esc(f.detail)}</span></div>`;
+  }).join("") || '<div class="empty">Nothing needs attention.</div>';
+  $("nback").textContent = o.backlog.length;
+  $("backlog").innerHTML = o.backlog.map(k => `<span class="chip" title="${esc(issues[k]?.summary)}">${esc(k)} · ${esc(issues[k]?.summary)}</span>`).join("")
+    || '<span class="empty">Empty.</span>';
+}
+
+async function loadAudit() {
+  const a = await api("/api/audit");
+  $("chain").textContent = a.intact ? `chain intact · ${a.total} entries` : "CHAIN BROKEN";
+  $("chain").className = "tag " + (a.intact ? "ok" : "bad");
+  $("audit").innerHTML = a.entries.map(e => {
+    const d = e.data, detail = e.kind === "request" ? d.text : e.kind === "plan_proposed" ? (d.refused.length ? "refused: " + d.refused.join("; ") : d.plan.summary)
+      : e.kind === "approval" ? (d.approved ? "approved" : "rejected") : e.kind === "step" ? d.result : d.outcome;
+    return `<div class="entry"><span class="t">${esc(e.at.slice(11, 19))}</span><span class="kind">${esc(e.kind)}</span>
+      <span class="d" title="${esc(detail)}">${esc(e.actor)} · ${esc(detail)}</span></div>`;
+  }).join("") || '<div class="empty">No entries yet.</div>';
+}
+
+function describe(step) {
+  if (step.tool === "assign_issue") return `Assign <b>${esc(step.issue_key)}</b> to <b>${esc(step.assignee_id ? (names[step.assignee_id] || step.assignee_id) : "nobody")}</b>`;
+  if (step.tool === "transition_issue") return `Move <b>${esc(step.issue_key)}</b> to <b>${esc(step.status)}</b>`;
+  return `Create issue <b>${esc(step.summary)}</b>`;
+}
+
+function show(r) {
+  thread = r.thread;
+  const meta = `<div class="meta">${esc(r.outcome)} · ${r.usage.calls} model calls · ${r.usage.tokens} tokens · $${r.usage.usd}</div>`;
+  if (r.outcome === "needs_approval") {
+    $("result").innerHTML = `<div class="plan"><h3>Plan: ${esc(r.plan.summary)}</h3>
+      ${r.plan.steps.map((s, n) => `<div class="step">${n + 1}. ${describe(s)}<div class="why">${esc(s.reason)}</div></div>`).join("")}
+      <div class="row"><button class="primary" onclick="decide(true)">Approve</button>
+      <button class="danger" onclick="decide(false)">Reject</button>
+      <span class="meta">Nothing changes in Jira until you approve.</span></div></div>${meta}`;
+  } else {
+    $("result").innerHTML = `<div class="answer">${markdown(r.answer)}</div>${meta}`;
+  }
+}
+
+async function run(job) {
+  $("send").disabled = true; $("busy").textContent = "working…";
+  try { show(await job()); } catch (e) { $("result").innerHTML = `<div class="answer">${esc(e.message)}</div>`; }
+  $("send").disabled = false; $("busy").textContent = "";
+  loadOverview(); loadAudit();
+}
+const send = () => $("text").value.trim() && run(() => api("/api/ask", {actor: $("actor").value, text: $("text").value.trim()}));
+const decide = approved => run(() => api("/api/decide", {actor: $("actor").value, thread, approved}));
+
+(async () => {
+  const p = await api("/api/people");
+  $("src").textContent = `team ${p.team} · ${p.source}`;
+  $("actor").innerHTML = p.people.map(x => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.role)}</option>`).join("");
+  $("examples").innerHTML = EXAMPLES.map(t => `<button>${esc(t)}</button>`).join("");
+  $("examples").onclick = e => { if (e.target.tagName === "BUTTON") $("text").value = e.target.textContent; };
+  $("actor").onchange = () => { $("result").innerHTML = ""; loadOverview(); };
+  $("send").onclick = send;
+  $("text").onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); };
+  loadOverview(); loadAudit();
+})();
+</script>
+</body>
+</html>
