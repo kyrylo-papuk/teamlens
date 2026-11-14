@@ -31,6 +31,7 @@ record at that line: `Availability` carries dates, and no type on the Delivery s
 | A person approves every change the agent proposes, and only the requester can | `approve` node pauses the graph | `test_rejection_and_foreign_approver_change_nothing` |
 | The system assigns work on its own only where someone with the right switched that on; each assignment is explained, recorded and can be undone | `delivery/autoassign.py` | `test_auto_mode_assigns_by_itself_and_can_be_undone` |
 | Every decision is on record and tampering is visible | `delivery/audit.py`, hash-chained | `test_audit_chain_detects_tampering` |
+| No person can be identified in a trace | `tracing.py`: names become employee ids in the client's mask function, which the SDK applies to every value it exports | `test_no_name_reaches_a_trace_and_ids_do`, `test_answer_text_from_the_model_is_masked_too` |
 
 ## What is stored
 
@@ -41,6 +42,7 @@ record at that line: `Availability` carries dates, and no type on the Delivery s
 | Audit log | request text, proposed plan, verdict of every rule, approval, each executed step, outcome, token usage; every automatic assignment with the candidates considered; every role defined, given or taken away | Confidential | append-only; each entry holds the hash of the previous one |
 | Conversation state | messages and tool results of a request, so a paused plan can resume | Confidential | holds the same minimised data the model saw; no Restricted data can be in it |
 | Roles and grants | the team's own roles, who was given which role, by whom and when | Confidential | changed only through `access.py`; every change is also in the audit log |
+| Traces (Langfuse, optional) | each model call with tokens and cost, tool calls and results, policy verdicts, outcomes | Confidential, pseudonymised | off unless keys are set; names are replaced by employee ids before export and long values are cut |
 | Model provider | prompts and outputs of each call | Confidential at most | Restricted data is never sent, so it cannot be retained there |
 
 ## Why two agents instead of one
@@ -68,5 +70,4 @@ Stated plainly, because a reviewer should not have to find these:
   the caller to pass who it acts for, and the People agent to check it.
 - **Token management.** Tokens are static and read from configuration. Production needs short-lived
   tokens issued per agent (OAuth client credentials or mTLS), which the agent card can already declare.
-- **Tracing with masking.** Traces are not exported yet. When they are, the same class rules apply to them.
-- **Free text in Jira.** An issue title can contain personal data typed by a person. Nothing scans for it.
+- **Free text in Jira.** An issue title can contain personal data typed by a person, such as a customer's name. Nothing scans for it, and the trace mask only knows employees.

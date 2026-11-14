@@ -115,15 +115,23 @@ class DeliveryAgent:
 
     async def ask(self, actor_id: str, text: str, thread: str) -> Result:
         self._audit.record("request", actor_id, thread, text=text)
+        if self._box.tracing.enabled:
+            await self._box.world(actor_id)  # the masker must know the team's names before the first span is written
         fresh = {"messages": [{"role": "user", "content": text}], "actor_id": actor_id, "turns": 0, "replans": 0,
                  "pending": [], "results": [], "approvals": 0, "rejected": 0, "plan": None, "cursor": 0, "done": [],
                  "outcome": None, "answer": "", "usage": {}}
-        return self._wrap(await self._graph.ainvoke(fresh, self._config(thread)))
+        with self._box.tracing.request("ask", thread, actor_id, input=text) as trace:
+            result = self._wrap(await self._graph.ainvoke(fresh, self._config(thread)))
+            trace.update(output={"outcome": result.outcome, "answer": result.answer, "plan": result.plan})
+            return result
 
     async def decide(self, thread: str, approved: bool, approver_id: str) -> Result:
         """Answer the approval the graph is waiting for on this thread."""
         decision = {"approved": approved, "by": approver_id}
-        return self._wrap(await self._graph.ainvoke(Command(resume=decision), self._config(thread)))
+        with self._box.tracing.request("decide", thread, approver_id, input=decision) as trace:
+            result = self._wrap(await self._graph.ainvoke(Command(resume=decision), self._config(thread)))
+            trace.update(output={"outcome": result.outcome, "answer": result.answer})
+            return result
 
     async def transcript(self, thread: str) -> list[dict]:
         """Everything the model saw and said on a thread, in order."""
@@ -238,6 +246,8 @@ class DeliveryAgent:
             plan, verdicts, refused = None, [], [f"The plan could not be checked: {exc}"]
         self._audit.record("plan_proposed", actor_id, thread, plan=proposal["input"],
                            verdicts=[v.model_dump() for v in verdicts], refused=refused)
+        with self._box.tracing.observe("policy", "guardrail", input=proposal["input"]) as span:
+            span.update(output={"allowed": not refused, "refused": refused}, level="WARNING" if refused else "DEFAULT")
 
         if not refused:
             return {"plan": {"call_id": proposal["id"], **plan.model_dump()}, "pending": [],

@@ -22,6 +22,7 @@ from teamlens.overview import build
 from teamlens.people import People, PeopleAgentError
 from teamlens.seed import Issue
 from teamlens.similar import Finder, Match
+from teamlens.tracing import Tracing
 
 MAX_ROWS = 40  # issues shown per search; more than this and the model is told to narrow the filters
 
@@ -118,8 +119,9 @@ class ToolFailure(Exception):
 
 class Toolbox:
     def __init__(self, jira: Client, people: People, today: date, access: Access | None = None,
-                 finder: Finder | None = None) -> None:
+                 finder: Finder | None = None, tracing: Tracing | None = None) -> None:
         self._jira, self._people, self._today = jira, people, today
+        self.tracing = tracing or Tracing()
         self.finder = finder or Finder()  # words only unless an embedder is passed in
         self.access = access or Access()  # without a store: the role each HR record implies
         self._fit: Fit | None = None
@@ -165,6 +167,7 @@ class Toolbox:
         if actor is None:
             raise ToolFailure(f"Unknown employee {actor_id}.")
         team = await self._people.team(actor.team) if actor.team else []
+        self.tracing.masker.learn([actor, *team])  # so their names never reach a trace
         availability = await self._people.availability([p.id for p in team])
         issues = [Issue(**i) for i in await self._call_jira("search_issues", {"project": actor.team})] if actor.team else []
         return World(actor=actor, rights=self.access.rights(actor), overview=build(team, availability, issues, self._today),
@@ -172,6 +175,16 @@ class Toolbox:
 
     async def run(self, name: str, arguments: dict, actor_id: str) -> str:
         """Run a read tool for the model and return compact text. Raises ToolFailure with a readable reason."""
+        with self.tracing.observe(name, "tool", input=arguments) as span:
+            try:
+                result = await self._run(name, arguments, actor_id)
+            except ToolFailure as exc:
+                span.update(output=str(exc), level="WARNING")
+                raise
+            span.update(output=result)
+            return result
+
+    async def _run(self, name: str, arguments: dict, actor_id: str) -> str:
         if name == "team_overview":
             overview = (await self.world(actor_id)).overview
             people = [{"id": x.employee_id, "name": x.name, "role": x.role, "open_issues": x.open_issues,
@@ -208,6 +221,16 @@ class Toolbox:
 
     async def execute(self, step: Step, actor: Person) -> str:
         """Apply one approved step in Jira and leave a comment saying who asked and why."""
+        with self.tracing.observe(f"jira:{step.tool}", "tool", input=step.model_dump()) as span:
+            try:
+                done = await self._execute(step, actor)
+            except ToolFailure as exc:
+                span.update(output=str(exc), level="ERROR")
+                raise
+            span.update(output=done)
+            return done
+
+    async def _execute(self, step: Step, actor: Person) -> str:
         note = f"[TeamLens] Changed on behalf of {actor.name}. Reason: {step.reason}"
         if step.tool == "assign_issue":
             await self._call_jira("assign_issue", {"key": step.issue_key, "assignee_id": step.assignee_id})

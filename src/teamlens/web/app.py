@@ -40,6 +40,7 @@ from teamlens.mcp_servers import jira_server
 from teamlens.people import A2APeople, LocalPeople
 from teamlens.seed import generate
 from teamlens.similar import Finder, load_embedder
+from teamlens.tracing import Tracing
 from teamlens.triage import Triage, load as load_triage
 
 PAGE = Path(__file__).with_name("page.html")
@@ -121,8 +122,11 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             app.state.access = Access(access_path, audit=app.state.audit)
             # A scripted model means a test: skip loading the embedding model and search by words.
             finder = Finder(load_embedder() if model is None else None)
-            app.state.box = Toolbox(client, people, c.today, app.state.access, finder)
-            app.state.model = model or ClaudeModel(api_key=s.anthropic_api_key)
+            tracing = Tracing() if model is not None else Tracing.from_settings(
+                s.langfuse_public_key, s.langfuse_secret_key, s.langfuse_host)
+            app.state.tracing = tracing
+            app.state.box = Toolbox(client, people, c.today, app.state.access, finder, tracing)
+            app.state.model = model or ClaudeModel(api_key=s.anthropic_api_key, tracing=tracing)
             app.state.agent = DeliveryAgent(app.state.model, app.state.box, app.state.audit, c.today)
             app.state.source = "in-memory demo data" if fake else s.jira_base_url
             settings_path = audit_path.with_name("team_settings.json") if audit_path else Path("data/team_settings.json")
@@ -146,6 +150,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             yield
             if watcher:
                 watcher.cancel()
+            tracing.flush()
         if http:
             await http.aclose()
         if not fake:
@@ -161,7 +166,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
     async def people() -> dict:
         """Who can be picked in the "working as" switch."""
         team = await app.state.people.team(app.state.team)
-        return {"team": app.state.team, "source": app.state.source,
+        return {"team": app.state.team, "source": app.state.source, "tracing": app.state.tracing.enabled,
                 "people": [{"id": p.id, "name": p.name, "role": p.role} for p in team]}
 
     @app.get("/api/overview")
@@ -187,7 +192,9 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             raise HTTPException(403, f"{world.actor.name} cannot see this team's work.")
         unowned = [{"issue": s.issue_key, "summary": s.summary, "points": s.points, "suggested_owner": s.assignee_name}
                    for s in await app.state.auto.suggestions(body.actor)]
-        d = await digests.write(app.state.model, world, app.state.box.forecast(world), unowned)
+        with app.state.tracing.request("digest", f"digest-{world.overview.today}", body.actor) as trace:
+            d = await digests.write(app.state.model, world, app.state.box.forecast(world), unowned)
+            trace.update(output={"text": d.text, "revisions": d.revisions, "problems_found": len(d.problems_found)})
         app.state.audit.record("digest", body.actor, "-", revisions=d.revisions, problems_found=len(d.problems_found),
                                problems_left=len(d.problems_left), usage=d.usage.model_dump())
         u = d.usage

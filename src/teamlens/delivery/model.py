@@ -7,6 +7,8 @@ from typing import Protocol
 import anthropic
 from pydantic import BaseModel
 
+from teamlens.tracing import Tracing
+
 # USD per million tokens for prompts up to 100K tokens (claude-haiku-5-5).
 PRICE = {"input": 0.10, "output": 0.50, "cache_read": 0.01, "cache_write": 0.125}
 
@@ -47,11 +49,26 @@ class Model(Protocol):
 
 class ClaudeModel:
     def __init__(self, model: str = "claude-haiku-5-5", effort: str = "medium",
-                 client: anthropic.AsyncAnthropic | None = None, api_key: str | None = None) -> None:
-        self._model, self._effort = model, effort
+                 client: anthropic.AsyncAnthropic | None = None, api_key: str | None = None,
+                 tracing: Tracing | None = None) -> None:
+        self._model, self._effort, self._tracing = model, effort, tracing or Tracing()
         self._client = client or anthropic.AsyncAnthropic(api_key=api_key or None)
 
+    def _traced(self, span, usage: Usage, output) -> None:
+        span.update(output=output, usage_details={"input": usage.input, "output": usage.output,
+                                                  "cache_read_input_tokens": usage.cache_read,
+                                                  "cache_creation_input_tokens": usage.cache_write},
+                    cost_details={"total": usage.usd})
+
     async def respond(self, system: str, messages: list[dict], tools: list[dict]) -> Reply:
+        # The trace gets the newest message only: earlier turns are already in earlier spans of the same trace.
+        with self._tracing.observe("model", "generation", model=self._model, input=messages[-1]["content"],
+                                   model_parameters={"effort": self._effort}) as span:
+            reply = await self._respond(system, messages, tools)
+            self._traced(span, reply.usage, {"text": reply.text, "tool_calls": [c.model_dump() for c in reply.tool_calls]})
+            return reply
+
+    async def _respond(self, system: str, messages: list[dict], tools: list[dict]) -> Reply:
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=16000,
@@ -82,13 +99,16 @@ class ClaudeModel:
 
     async def structured(self, system: str, user: str, schema: type[BaseModel]) -> tuple[BaseModel, Usage]:
         """One answer constrained to ``schema``."""
-        response = await self._client.messages.parse(
-            model=self._model, max_tokens=16000, system=system, messages=[{"role": "user", "content": user}],
-            output_config={"effort": self._effort}, output_format=schema)
-        u = response.usage
-        return response.parsed_output, Usage(calls=1, input=u.input_tokens, output=u.output_tokens,
-                                             cache_read=u.cache_read_input_tokens or 0,
-                                             cache_write=u.cache_creation_input_tokens or 0)
+        with self._tracing.observe("model", "generation", model=self._model, input=user,
+                                   model_parameters={"effort": self._effort, "schema": schema.__name__}) as span:
+            response = await self._client.messages.parse(
+                model=self._model, max_tokens=16000, system=system, messages=[{"role": "user", "content": user}],
+                output_config={"effort": self._effort}, output_format=schema)
+            u = response.usage
+            usage = Usage(calls=1, input=u.input_tokens, output=u.output_tokens,
+                          cache_read=u.cache_read_input_tokens or 0, cache_write=u.cache_creation_input_tokens or 0)
+            self._traced(span, usage, response.parsed_output.model_dump())
+            return response.parsed_output, usage
 
 
 class ScriptedModel:
