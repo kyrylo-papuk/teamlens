@@ -1,0 +1,18 @@
+# Paths are anchored to the project root: a bare "evals" would also drop src/teamlens/evals.
+/.venv
+/.git
+/.github
+/data
+/models
+/checkpoints
+/evals
+/docs
+/tests
+/scripts
+/Dockerfile
+/docker-compose.yml
+/render.yaml
+/.pytest_cache
+/.ruff_cache
+.env
+.env.*

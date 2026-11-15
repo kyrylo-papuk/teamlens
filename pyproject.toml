@@ -17,6 +17,9 @@ ml = ["setfit>=1.2,<2"]  # trains and runs the ticket triage model; without it a
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[tool.vercel]
+entrypoint = "app:app"  # the public demo; see app.py
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

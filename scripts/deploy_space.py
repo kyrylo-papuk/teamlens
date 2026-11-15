@@ -4,9 +4,9 @@
     python scripts/deploy_space.py              creates or updates <you>/teamlens
     python scripts/deploy_space.py --with-key   also stores ANTHROPIC_API_KEY from .env as a Space secret
 
-A Space keeps running while it has visitors and only pauses after about two days without any, which suits a
-demo better than hosts that sleep after minutes. The demo runs the fictional company in one container, with
-the daily cap on model requests and the notice line described in the README.
+A Space keeps running while it has visitors and only pauses after about two days without any. Docker Spaces
+need a PRO subscription on Hugging Face; a free account gets a 402 from this script. The demo runs the fictional
+company in one container, with the daily cap on model requests and the notice line described in the README.
 """
 
 from __future__ import annotations

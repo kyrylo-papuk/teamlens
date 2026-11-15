@@ -140,9 +140,10 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             client = await stack.enter_async_context(Client(jira_server(jira)))
             app.state.team = s.jira_team_key
             app.state.people = people
-            app.state.audit = AuditLog(audit_path or Path("data/audit.jsonl"))
-            access_path = audit_path.with_name("access.json") if audit_path else Path("data/access.json")
-            app.state.access = Access(access_path, audit=app.state.audit)
+            # Everything the app writes goes to one folder. Hosts with a read-only filesystem point it at /tmp.
+            data = audit_path.parent if audit_path else Path(os.environ.get("TEAMLENS_DATA_DIR", "data"))
+            app.state.audit = AuditLog(audit_path or data / "audit.jsonl")
+            app.state.access = Access(data / "access.json", audit=app.state.audit)
             # A scripted model means a test: skip loading the embedding model and search by words.
             finder = Finder(load_embedder() if model is None else None)
             tracing = Tracing() if model is not None else Tracing.from_settings(
@@ -151,7 +152,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             app.state.box = Toolbox(client, people, c.today, app.state.access, finder, tracing)
             app.state.model = model or ClaudeModel(api_key=s.anthropic_api_key, tracing=tracing)
             # A real run keeps paused conversations in SQLite, so a plan waiting for approval survives a restart.
-            saved, checkpointer = state_path or (None if model is not None else Path("data/state.sqlite")), None
+            saved, checkpointer = state_path or (None if model is not None else data / "state.sqlite"), None
             if saved:
                 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
@@ -159,7 +160,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                 checkpointer = await stack.enter_async_context(AsyncSqliteSaver.from_conn_string(str(saved)))
             app.state.agent = DeliveryAgent(app.state.model, app.state.box, app.state.audit, c.today, checkpointer)
             app.state.source = "in-memory demo data" if fake else "Jira Cloud"
-            settings_path = audit_path.with_name("team_settings.json") if audit_path else Path("data/team_settings.json")
+            settings_path = data / "team_settings.json"
             # Tests pass their own classifier or none; a real run uses the trained model if there is one.
             sorter = triage or (None if model is not None else load_triage(s.anthropic_api_key))
             app.state.triage = sorter.name if sorter else None

@@ -206,9 +206,11 @@ python -m teamlens.web              # http://localhost:8000
 python -m teamlens.delivery "Who is at risk this sprint and why?"
 ```
 
-**A public demo** on Render: `render.yaml` describes one container running the fictional company. Because the
-demo has no login, it caps the requests per day that reach the model (`TEAMLENS_DAILY_MODEL_REQUESTS`) and shows
-a notice at the top of the page; over the cap the agent answers 429 and the plain-code features keep working.
+**A public demo**: import the repository on Vercel (the entrypoint is `app.py`) or use `render.yaml` on Render;
+both run the fictional company in one process. Because the demo has no login, it caps the requests per day that
+reach the model (`TEAMLENS_DAILY_MODEL_REQUESTS`) and shows a notice at the top of the page; over the cap the
+agent answers 429 and the plain-code features keep working. On Vercel the app runs as a function: its files live
+in the temp folder and an idle instance is recycled, so the demo's data resets after a while without visitors.
 
 **Evaluations** (these call the model and cost a few cents; the judge about $0.50):
 
