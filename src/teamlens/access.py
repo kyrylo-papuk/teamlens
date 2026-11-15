@@ -38,6 +38,7 @@ RIGHTS = {
     "autoassign.configure": "Confirm suggested owners and switch automatic assignment",
     "roles.grant": "Give and take away roles in the team",
     "roles.define": "Create and delete the team's own roles",
+    "audit.view": "See the team's audit log",
 }
 BUILT_IN = {
     "admin": set(RIGHTS),

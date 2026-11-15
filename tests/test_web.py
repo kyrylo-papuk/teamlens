@@ -36,7 +36,7 @@ def test_ask_approve_and_audit(tmp_path):
         assert done["outcome"] == "executed"
         o = http.get("/api/overview", params={"actor": MANAGER}).json()
         assert ISSUE in next(x for x in o["loads"] if x["employee_id"] == FREE)["open_issues"]
-        audit = http.get("/api/audit").json()
+        audit = http.get("/api/audit", params={"actor": MANAGER}).json()
         assert audit["intact"] and [e["kind"] for e in audit["entries"]][::-1] == ["request", "plan_proposed", "approval", "step", "outcome"]
 
 
@@ -64,7 +64,7 @@ def test_auto_assignment_through_the_api(tmp_path):
         state = http.get("/api/autoassign", params={"actor": MANAGER}).json()
         assert state["suggestions"] == [] and {r["issue_key"] for r in state["recent"]} == {made["issue_key"], second["issue_key"]}
         assert http.post("/api/autoassign/undo", json={"actor": MANAGER, "issue_key": second["issue_key"]}).json()["ok"]
-        assert http.get("/api/audit").json()["intact"]
+        assert http.get("/api/audit", params={"actor": MANAGER}).json()["intact"]
 
 
 def test_roles_through_the_api(tmp_path):
@@ -87,8 +87,41 @@ def test_roles_through_the_api(tmp_path):
         assert http.post("/api/roles/revoke", json={"actor": MANAGER, "employee_id": FREE, "role": "tech-lead"}).json() == {"ok": True}
         assert not http.get("/api/autoassign", params={"actor": FREE}).json()["can_configure"]
         assert http.post("/api/roles/delete", json={"actor": MANAGER, "name": "tech-lead"}).json() == {"ok": True}
-        kinds = [e["kind"] for e in http.get("/api/audit").json()["entries"]][::-1]
+        kinds = [e["kind"] for e in http.get("/api/audit", params={"actor": MANAGER}).json()["entries"]][::-1]
         assert kinds == ["role_defined", "role_granted", "role_revoked", "role_deleted"]
+
+
+def test_buttons_go_through_the_same_rules_and_log_as_plans(tmp_path):
+    other = PAY[3].id
+    with client(tmp_path) as http:
+        key = http.post("/api/issues", json={"actor": MANAGER, "summary": "Payout bug", "points": 2}).json()["issue_key"]
+        assign = lambda actor, to: http.post("/api/issues/assign", json={"actor": actor, "issue_key": key, "assignee_id": to})  # noqa: E731
+        move = lambda actor, status: http.post("/api/issues/move", json={"actor": actor, "issue_key": key, "status": status})  # noqa: E731
+
+        assert assign(FREE, FREE).json()["ok"]  # an engineer takes work nobody owns
+        assert move(FREE, "In Progress").json()["ok"]  # and moves their own issue
+        refused = move(other, "In Review")  # a colleague may not move it
+        assert refused.status_code == 403 and "does not have the right" in refused.json()["detail"]
+        assert assign(other, other).status_code == 403  # or take it over
+        closed = move(MANAGER, "Done")  # the manager has the rights, and a rule still says no
+        assert closed.status_code == 409 and "Only the person who did the work" in closed.json()["detail"]
+        assert assign(MANAGER, AWAY).status_code == 409  # nobody hands work to a person who is away
+        assert move(FREE, "Done").json()["ok"]
+
+        o = http.get("/api/overview", params={"actor": MANAGER}).json()
+        assert o["issues"][key]["status"] == "Done"
+        log = http.get("/api/audit", params={"actor": MANAGER}).json()
+        changes = [e["data"] for e in log["entries"] if e["kind"] == "direct_change"]
+        assert log["intact"] and [c["allowed"] for c in changes][::-1] == [True, True, False, False, False, False, True]
+        assert {c["rule"] for c in changes if not c["allowed"]} == {"right", "humans_close_work", "assignee_available"}
+
+
+def test_audit_log_and_role_holders_are_shown_by_right(tmp_path):
+    with client(tmp_path) as http:
+        assert http.get("/api/audit", params={"actor": FREE}).status_code == 403
+        mine = http.get("/api/roles", params={"actor": FREE}).json()
+        assert mine["members"] == [] and mine["roles"] == [] and not mine["can_manage"] and "issues.take" in mine["mine"]
+        assert len(http.get("/api/roles", params={"actor": MANAGER}).json()["members"]) == 8
 
 
 def test_a_plan_waiting_for_approval_survives_a_restart(tmp_path):
@@ -105,7 +138,7 @@ def test_a_plan_waiting_for_approval_survives_a_restart(tmp_path):
         assert done["outcome"] == "executed"
         o = http.get("/api/overview", params={"actor": MANAGER}).json()
         assert ISSUE in next(x for x in o["loads"] if x["employee_id"] == FREE)["open_issues"]
-        kinds = [e["kind"] for e in http.get("/api/audit").json()["entries"]][::-1]
+        kinds = [e["kind"] for e in http.get("/api/audit", params={"actor": MANAGER}).json()["entries"]][::-1]
         assert kinds == ["request", "plan_proposed", "approval", "step", "outcome"]  # one unbroken record across both
 
 
@@ -147,12 +180,12 @@ def test_demo_reset_puts_the_company_back(tmp_path):
         http.post("/api/autoassign/mode", json={"actor": MANAGER, "mode": "auto"})
         changed = http.get("/api/overview", params={"actor": MANAGER}).json()
         assert ISSUE not in next(x for x in changed["loads"] if x["employee_id"] == AWAY)["open_issues"]
-        assert http.get("/api/audit").json()["total"] > 0
+        assert http.get("/api/audit", params={"actor": MANAGER}).json()["total"] > 0
 
         assert http.post("/api/demo/reset", json={}).json() == {"ok": True}
         fresh = http.get("/api/overview", params={"actor": MANAGER}).json()
         assert [f["kind"] for f in fresh["findings"]] == ["assigned_while_absent"]
         assert ISSUE in next(x for x in fresh["loads"] if x["employee_id"] == AWAY)["open_issues"]
-        assert http.get("/api/audit").json()["total"] == 0
+        assert http.get("/api/audit", params={"actor": MANAGER}).json()["total"] == 0
         assert [r["name"] for r in http.get("/api/roles", params={"actor": MANAGER}).json()["roles"]] == ["manager", "engineer"]
         assert http.get("/api/autoassign", params={"actor": MANAGER}).json()["mode"] == "suggest"

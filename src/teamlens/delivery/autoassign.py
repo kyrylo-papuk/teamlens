@@ -163,7 +163,7 @@ class AutoAssigner:
         s = suggest(issue, world, area=await self._area(issue))
         if s.assignee_id is None:
             self._audit.record("auto_assign", SYSTEM_ACTOR if by_system else actor_id, "-", issue=issue_key,
-                               assignee=None, reason=s.reason)
+                               assignee=None, on_behalf_of=actor_id, reason=s.reason)
             return Applied(issue_key=issue_key, assignee_id=None, ok=False, detail=s.reason)
         how = "Assigned automatically" if by_system else "Assigned from a suggestion"
         step = Step(tool="assign_issue", issue_key=issue_key, assignee_id=s.assignee_id, reason=f"{how}. {s.reason}")

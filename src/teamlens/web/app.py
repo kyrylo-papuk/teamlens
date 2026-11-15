@@ -29,6 +29,7 @@ from teamlens import live
 from teamlens.access import RIGHTS, Access
 from teamlens.config import Settings
 from teamlens.delivery import digest as digests
+from teamlens.delivery import direct
 from teamlens.delivery.agent import DeliveryAgent
 from teamlens.delivery.audit import AuditLog
 from teamlens.delivery.autoassign import AutoAssigner, Mode
@@ -74,6 +75,18 @@ class NewIssue(BaseModel):
     actor: str
     summary: str
     points: int = 1
+
+
+class Assign(BaseModel):
+    actor: str
+    issue_key: str
+    assignee_id: str | None = None  # nobody: the owner gives the issue up
+
+
+class Move(BaseModel):
+    actor: str
+    issue_key: str
+    status: str
 
 
 class OnActor(BaseModel):
@@ -317,6 +330,25 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         applied = await app.state.auto.sweep(app.state.team, app.state.manager)
         return {"issue_key": issue.key, "applied": [a.model_dump() for a in applied]}
 
+    # --- changes made with a button: one step, the same rules and log as a plan, no model -----
+
+    async def change(actor: str, step: Step) -> dict:
+        done = await guarded(direct.apply(app.state.box, app.state.audit, actor, step))
+        if not done.ok:  # 403: you may not do this; 409: nobody may, as things stand
+            raise HTTPException(403 if done.rule in ("right", "actor_team") else 409, done.detail)
+        return done.model_dump()
+
+    @app.post("/api/issues/assign")
+    async def assign_issue(body: Assign) -> dict:
+        """Take an issue, hand it to someone, or give it up. Which of these a person may do is the policy's call."""
+        return await change(body.actor, Step(tool="assign_issue", issue_key=body.issue_key, assignee_id=body.assignee_id,
+                                             reason="Changed directly on the TeamLens page."))
+
+    @app.post("/api/issues/move")
+    async def move_issue(body: Move) -> dict:
+        return await change(body.actor, Step(tool="transition_issue", issue_key=body.issue_key, status=body.status,
+                                             reason="Changed directly on the TeamLens page."))
+
     # --- roles and rights: buttons and plain code, never the model ---------------------------
 
     async def person(employee_id: str):
@@ -336,11 +368,13 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         access, me = app.state.access, await person(actor)
         team = me.team or app.state.team
         mine = access.rights(me, team)
-        members = await app.state.people.team(team)
+        # Who holds which role is shown only to people who manage roles. Everyone else gets their own rights.
+        manages = bool(mine & {"roles.grant", "roles.define"})
+        members = await app.state.people.team(team) if manages else []
         return {
-            "team": team, "catalogue": RIGHTS, "mine": sorted(mine),
+            "team": team, "catalogue": RIGHTS, "mine": sorted(mine), "can_manage": manages,
             "roles": [{**r.model_dump(), "can_give": "roles.grant" in mine and set(r.rights) <= mine}
-                      for r in access.roles(team) if r.name != "admin"],
+                      for r in access.roles(team) if r.name != "admin"] if manages else [],
             "members": [{"id": p.id, "name": p.name, "base": access.base_role(p), "granted": access.granted(p, team),
                          "rights": sorted(access.rights(p, team))} for p in members if p.active],
         }
@@ -380,9 +414,16 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         return {"ok": True}
 
     @app.get("/api/audit")
-    async def audit(limit: int = 30) -> dict:
+    async def audit(actor: str, limit: int = 30) -> dict:
+        """The log of the actor's team, for people with the right to see it. The chain is checked over the whole log."""
+        me = await person(actor)
+        team = me.team or app.state.team
+        if "audit.view" not in app.state.access.rights(me, team):
+            raise HTTPException(403, f"{me.name} does not have the right to do this: {RIGHTS['audit.view'].lower()}.")
+        members = {p.id for p in await app.state.people.team(team)}
         log = app.state.audit
-        entries = log.entries()
+        entries = [e for e in log.entries() if e["actor"] in members or e["data"].get("on_behalf_of") in members
+                   or e["data"].get("team") == team]
         return {"intact": log.verify() is None, "total": len(entries), "entries": entries[-limit:][::-1]}
 
     return app

@@ -231,7 +231,9 @@ async function loadOverview() {
 }
 
 async function loadAudit() {
-  const a = await api("/api/audit");
+  let a;
+  try { a = await api("/api/audit?actor=" + $("actor").value); }
+  catch (e) { $("chain").textContent = ""; $("audit").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
   $("chain").textContent = a.intact ? `chain intact · ${a.total} entries` : "CHAIN BROKEN";
   $("chain").className = "tag " + (a.intact ? "ok" : "bad");
   $("audit").innerHTML = a.entries.map(e => {
@@ -241,6 +243,7 @@ async function loadAudit() {
       : e.kind === "role_granted" ? `${d.role} → ${d.employee}` : e.kind === "role_revoked" ? `${d.role} taken from ${d.employee}`
       : e.kind === "role_defined" ? `${d.role}: ${d.rights.join(", ")}` : e.kind === "role_deleted" ? d.role
       : e.kind === "digest" ? `checked, ${d.problems_found} found, ${d.problems_left} left`
+      : e.kind === "direct_change" ? (d.allowed ? d.result : "refused: " + d.result)
       : e.kind === "auto_assign_undone" ? `${d.issue} unassigned` : e.kind === "issue_created" ? `${d.issue} ${d.summary}` : d.outcome;
     return `<div class="entry"><span class="t">${esc(e.at.slice(11, 19))}</span><span class="kind">${esc(e.kind)}</span>
       <span class="d" title="${esc(detail)}">${esc(e.actor)} · ${esc(detail)}</span></div>`;
