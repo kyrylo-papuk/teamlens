@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TeamLens</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --bg: #f6f7f9; --card: #ffffff; --ink: #1c2330; --muted: #667085; --line: #e3e7ee;
@@ -14,46 +15,114 @@
             --accent: #7ea2ff; --ok: #4cc38a; --warn: #e2a84b; --bad: #f0766c; --chip: #262d39; }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; gap: 16px; padding: 14px 24px; background: var(--card);
-           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  header h1 { margin: 0; font-size: 18px; letter-spacing: .2px; }
-  header .src { color: var(--muted); font-size: 12px; }
-  header #reset { font-size: 12px; padding: 4px 10px; color: var(--muted); }
-  header .who { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); }
-  select, textarea, button { font: inherit; color: var(--ink); }
-  select { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
-  main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; padding: 16px 24px 32px;
-         max-width: 1400px; margin: 0 auto; }
-  @media (max-width: 980px) { main { grid-template-columns: 1fr; padding: 12px; } }
-  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-  h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
-       display: flex; align-items: center; gap: 8px; }
-  h2 .count { background: var(--chip); border-radius: 10px; padding: 0 8px; font-size: 12px; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 0 8px 8px 0; }
-  td { padding: 10px 8px 10px 0; border-top: 1px solid var(--line); vertical-align: top; }
-  .name { font-weight: 600; } .role { color: var(--muted); font-size: 12px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-  .chip { background: var(--chip); border-radius: 6px; padding: 1px 7px; font-size: 12px; white-space: nowrap; }
-  .bar { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; min-width: 90px; }
-  .bar i { display: block; height: 100%; border-radius: 4px; }
-  .load { font-size: 12px; color: var(--muted); margin-top: 3px; white-space: nowrap; }
-  .tag { border-radius: 6px; padding: 1px 8px; font-size: 12px; white-space: nowrap; }
-  .tag.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
-  .tag.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
-  .tag.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
-  .finding { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); align-items: baseline; }
-  .finding:first-of-type { border-top: 0; }
-  .empty { color: var(--muted); }
-  textarea { width: 100%; min-height: 72px; resize: vertical; background: var(--bg); border: 1px solid var(--line);
-             border-radius: 8px; padding: 10px; }
-  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  select, textarea, button, input { font: inherit; color: var(--ink); }
   button { border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.danger { color: var(--bad); }
+  button.small { font-size: 12px; padding: 4px 10px; }
   button:disabled { opacity: .5; cursor: default; }
-  .examples button { font-size: 12px; padding: 3px 9px; color: var(--muted); }
+  select { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+  input { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; flex: 1; min-width: 160px; }
+  textarea { width: 100%; min-height: 72px; resize: vertical; background: var(--bg); border: 1px solid var(--line);
+             border-radius: 8px; padding: 10px; }
+
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 24px; background: var(--card);
+           border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: .2px; }
+  header .src { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  header .me { display: flex; flex-direction: column; line-height: 1.25; text-align: right; }
+  header .me span { color: var(--muted); font-size: 12px; }
+  header button { font-size: 12px; padding: 5px 10px; }
+  #reset { color: var(--muted); }
+  #toggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #notice { background: color-mix(in srgb, var(--accent) 12%, transparent); padding: 8px 24px; font-size: 13px;
+            border-bottom: 1px solid var(--line); }
+
+  /* Who are you */
+  #start { max-width: 1000px; margin: 0 auto; padding: 28px 24px 48px; }
+  #start .title { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
+  #start p { color: var(--muted); margin: 0 0 8px; max-width: 680px; }
+  #start h3 { margin: 26px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+              display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #start h3 .hint { text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .card { text-align: left; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 14px;
+          border-radius: 12px; }
+  .card:hover { border-color: var(--accent); }
+  .card b { font-size: 15px; }
+
+  /* Screens */
+  .tabs { display: flex; gap: 2px; padding: 0 24px; background: var(--card); border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 10px 14px;
+                 color: var(--muted); white-space: nowrap; }
+  .tabs button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+  main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px 24px 32px; max-width: 1400px; margin: 0 auto; }
+  body.panel main { grid-template-columns: minmax(0, 1fr) 380px; }
+  #panel { display: none; }
+  body.panel #panel { display: block; position: sticky; top: 12px; align-self: start; max-height: calc(100vh - 24px); overflow-y: auto; }
+  .cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 980px) {
+    main { padding: 12px; } body.panel main, .cols { grid-template-columns: 1fr; }
+    body.panel #panel { position: static; max-height: none; }
+  }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+       display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  h2 .count { background: var(--chip); border-radius: 10px; padding: 0 8px; font-size: 12px; }
+  h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  #flash { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); border-radius: 8px; padding: 9px 12px;
+           margin-bottom: 12px; }
+  .teamhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .teamhead b { font-size: 18px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 0 8px 8px 0; }
+  td { padding: 10px 8px 10px 0; border-top: 1px solid var(--line); vertical-align: top; }
+  tr.go { cursor: pointer; } tr.go:hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .name { font-weight: 600; } .role { color: var(--muted); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { background: var(--chip); border-radius: 6px; padding: 1px 7px; font-size: 12px; white-space: nowrap; border: 0; }
+  button.chip:hover { outline: 1px solid var(--accent); }
+  .chip.grant { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  .chip.base { color: var(--muted); }
+  .chip button { border: 0; background: none; padding: 0 0 0 4px; color: inherit; cursor: pointer; }
+  .bar { height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; min-width: 90px; }
+  .bar i { display: block; height: 100%; border-radius: 4px; }
+  .load { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .tag { border-radius: 6px; padding: 1px 8px; font-size: 12px; white-space: nowrap; background: var(--chip); color: var(--muted); }
+  .tag.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+  .tag.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .tag.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+  .tag.info { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .empty, .meta { color: var(--muted); } .meta { font-size: 12px; }
+  .item { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 9px 0; border-top: 1px solid var(--line); }
+  .item:first-child { border-top: 0; }
+  .item .sum { flex: 1 1 220px; min-width: 0; }
+  .item button { font-size: 12px; padding: 4px 12px; }
+  button.key { border: 0; background: var(--chip); border-radius: 6px; padding: 1px 7px; font-size: 12px; font-weight: 600; }
+  button.key:hover { outline: 1px solid var(--accent); }
+  .finding { display: flex; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); align-items: baseline; }
+  .finding:first-child { border-top: 0; } .finding span.text { flex: 1; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .modes { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .modes button { border: 0; border-radius: 0; padding: 3px 12px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .modes button.on { background: var(--accent); color: #fff; }
+  .sug { padding: 10px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+  .sug .why { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
+  .fbar { position: relative; height: 14px; background: var(--chip); border-radius: 7px; overflow: hidden; }
+  .fbar.thin { height: 8px; min-width: 120px; }
+  .fbar i { position: absolute; top: 0; left: 0; height: 100%; }
+  .fbar .exp { background: var(--accent); opacity: .55; } .fbar .done { background: var(--ok); z-index: 1; }
+  .fbar b { position: absolute; top: 6px; height: 2px; background: var(--ink); z-index: 2; }
+  .flegend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .flegend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  .flegend .right { margin-left: auto; }
+
+  /* Assistant */
+  .examples button { font-size: 12px; padding: 3px 9px; color: var(--muted); text-align: left; }
   .answer { margin-top: 12px; padding: 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
   .answer ul { margin: 4px 0; padding-left: 20px; } .answer p { margin: 4px 0; }
   .answer pre { margin: 6px 0; overflow-x: auto; font-size: 12px; }
@@ -61,111 +130,178 @@
   .plan h3 { margin: 0 0 8px; font-size: 14px; }
   .step { padding: 8px 0; border-top: 1px solid var(--line); }
   .step .why { color: var(--muted); font-size: 12px; }
-  .meta { color: var(--muted); font-size: 12px; margin-top: 8px; }
-  .audit { max-height: 340px; overflow-y: auto; }
-  .entry { display: grid; grid-template-columns: 58px 92px 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line);
-           font-size: 12px; }
-  .modes { margin-left: auto; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .modes button { border: 0; border-radius: 0; padding: 3px 12px; font-size: 12px; }
-  .modes button.on { background: var(--accent); color: #fff; }
-  .sug { padding: 10px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
-  .sug .why { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
-  .sug button { font-size: 12px; padding: 4px 10px; }
-  input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; flex: 1; min-width: 160px; }
+
+  /* History and roles */
+  .entry { display: grid; grid-template-columns: 62px 130px 1fr; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12px; }
+  .entry .kind { font-weight: 600; } .entry .t { color: var(--muted); }
+  .entry .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .member { padding: 8px 0; border-top: 1px solid var(--line); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .member .who2 { font-weight: 600; margin-right: 4px; }
-  .chip.role { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
-  .chip.base { color: var(--muted); }
-  .chip button { border: 0; background: none; padding: 0 0 0 4px; color: inherit; cursor: pointer; }
-  .member select, .roledef select { font-size: 12px; padding: 2px 6px; margin-left: auto; }
+  .member select { font-size: 12px; padding: 2px 6px; margin-left: auto; }
   .roledef { padding: 8px 0; border-top: 1px solid var(--line); }
   .roledef .head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
   .roledef .head b { margin-right: auto; }
-  .roledef .head button { font-size: 12px; padding: 2px 8px; }
   .rights { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; margin: 8px 0; font-size: 12px; }
   .rights label { display: flex; gap: 6px; align-items: baseline; }
-  .fbar { position: relative; height: 14px; background: var(--chip); border-radius: 7px; overflow: hidden; }
-  .fbar i { position: absolute; top: 0; left: 0; height: 100%; }
-  .fbar #fexp { background: var(--accent); opacity: .55; } .fbar #fdone { background: var(--ok); z-index: 1; }
-  .fbar b { position: absolute; top: 6px; height: 2px; background: var(--ink); z-index: 2; }
-  .flegend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
-  .flegend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
-  .flegend #fcommitted { margin-left: auto; }
-  #notice { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink); padding: 8px 24px; font-size: 13px;
-            border-bottom: 1px solid var(--line); }
-  .entry .kind { font-weight: 600; } .entry .t { color: var(--muted); }
-  .entry .d { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rights input { flex: none; min-width: 0; }
+
+  /* One issue */
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--card); color: var(--ink); padding: 16px;
+           width: min(480px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0, 0, 0, .4); }
+  dialog .head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  dialog .head b { font-size: 16px; } dialog .head .x { margin-left: auto; border: 0; font-size: 18px; padding: 0 6px; }
+  dialog .acts { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  dialog .acts .row { margin: 0; }
+  dialog .err { color: var(--bad); margin-top: 10px; min-height: 1.4em; }
 </style>
 </head>
 <body>
 <header>
   <h1>TeamLens</h1>
   <span class="src" id="src"></span>
-  <label class="who">Working as <select id="actor"></select></label>
+  <span class="spacer"></span>
   <button id="reset" hidden title="Put the fictional company back to its starting state">Reset demo data</button>
+  <span class="me" id="me" hidden><b id="mename"></b><span id="mepos"></span></span>
+  <button id="switch" hidden title="Look at TeamLens as someone else">Switch person</button>
+  <button id="toggle" hidden title="Show or hide the assistant">Assistant</button>
 </header>
 <div id="notice" hidden></div>
-<main>
-  <div>
-    <section>
-      <h2>Sprint forecast <span class="tag" id="risk"></span></h2>
-      <div class="fbar"><i id="fdone"></i><i id="fexp"></i><b id="frange"></b></div>
-      <div class="flegend"><span><i style="background:var(--ok)"></i>done</span><span><i style="background:var(--accent)"></i>expected by the end</span>
-        <span><i style="background:var(--ink);height:2px"></i>90% interval</span><span id="fcommitted"></span></div>
-      <div class="meta" id="fsummary"></div>
-    </section>
-    <section>
-      <h2>Team <span class="count" id="today"></span></h2>
-      <table>
-        <thead><tr><th>Person</th><th>Open issues</th><th>Sprint load</th><th>Status</th></tr></thead>
-        <tbody id="team"></tbody>
-      </table>
-    </section>
-    <section>
-      <h2>Problems found <span class="count" id="nfind">0</span></h2>
-      <div id="findings"></div>
-    </section>
-    <section>
-      <h2>Sprint work without an owner <span class="count" id="nunowned">0</span>
-        <span class="modes" id="modes"><button data-mode="suggest">Suggest</button><button data-mode="auto">Auto</button></span>
-      </h2>
-      <div class="meta" id="modeinfo" style="margin:-4px 0 8px"></div>
-      <div id="unowned"><div class="empty">Checking…</div></div>
-      <div id="recent"></div>
-      <div class="row"><input id="newsum" placeholder="New task for the team, added to the sprint"><select id="newpts">
-        <option>1</option><option selected>2</option><option>3</option><option>5</option><option>8</option></select>
-        <button id="newadd">Add to sprint</button></div>
-      <div id="dupes"></div>
-      <div class="meta" id="newinfo"></div>
-    </section>
-    <section>
-      <h2>Unassigned backlog <span class="count" id="nback">0</span></h2>
-      <div class="chips" id="backlog"></div>
-    </section>
-  </div>
-  <div>
-    <section>
-      <h2>Ask the agent</h2>
-      <textarea id="text" placeholder="Ask about the team, or ask for a change in Jira"></textarea>
-      <div class="row examples" id="examples"></div>
-      <div class="row"><button class="primary" id="send">Send</button><button id="digest">Morning digest</button><span class="meta" id="busy"></span></div>
-      <div id="result"></div>
-    </section>
-    <section>
-      <h2>Audit log <span class="tag ok" id="chain"></span></h2>
-      <div class="audit" id="audit"></div>
-    </section>
-    <section>
-      <h2>Roles and rights</h2>
-      <div class="meta" id="myrights" style="margin:-4px 0 10px"></div>
-      <div id="members"></div>
-      <h2 style="margin-top:16px">Roles of this team</h2>
-      <div id="roles"></div>
-      <div id="roleform"></div>
-      <div class="meta" id="roleinfo"></div>
-    </section>
-  </div>
-</main>
+
+<div id="start" hidden>
+  <div class="title">Who are you?</div>
+  <p>TeamLens shows each person the part of the picture their position needs, and only the buttons they have the right to press.
+     Pick someone to see it as they do.</p>
+  <p class="meta">This demo has no login. In a real deployment single sign-on answers this question, and the position comes
+     from the HR system either way.</p>
+  <h3 id="h-exec">Leadership <span class="hint">sees every team, decides who manages them, changes no issue</span></h3>
+  <div class="pick" id="p-exec"></div>
+  <h3>Team managers <span class="hint">run one team: assign work, set up roles, read its history</span></h3>
+  <div class="pick" id="p-mgr"></div>
+  <h3>Engineers <span class="hint">take work and move their own issues</span> <span class="modes" id="p-teams"></span></h3>
+  <div class="pick" id="p-eng"></div>
+</div>
+
+<div id="app" hidden>
+  <nav class="tabs" id="tabs"></nav>
+  <main>
+    <div>
+      <div id="flash" hidden></div>
+
+      <div class="view" id="v-company" hidden>
+        <section>
+          <h2>Every team this sprint <span class="right meta" id="csum"></span></h2>
+          <table>
+            <thead><tr><th>Team</th><th>Managed by</th><th>People</th><th>Sprint forecast</th><th>Load</th><th>Needs attention</th><th></th></tr></thead>
+            <tbody id="company"></tbody>
+          </table>
+          <div class="meta" style="margin-top:10px">Open a team to see its people and work. Leadership looks and decides who manages a team;
+            changing the team's issues is the job of its manager.</div>
+        </section>
+      </div>
+
+      <div class="view" id="v-mine" hidden>
+        <section>
+          <h2>My sprint <span id="mystatus"></span></h2>
+          <div id="myload"></div>
+        </section>
+        <section>
+          <h2>My issues <span class="count" id="nmine">0</span></h2>
+          <div id="myissues"></div>
+        </section>
+        <section>
+          <h2>Sprint work nobody owns <span class="count" id="nfree">0</span></h2>
+          <div id="free"></div>
+        </section>
+        <section>
+          <h2>Backlog <span class="count" id="nmyback">0</span></h2>
+          <div id="myback"></div>
+        </section>
+        <div class="meta">What I may do: <span id="mymay"></span></div>
+      </div>
+
+      <div class="view" id="v-team" hidden>
+        <div class="teamhead" id="teamhead"></div>
+        <section>
+          <h2>Sprint forecast <span class="tag" id="risk"></span></h2>
+          <div class="fbar"><i class="done" id="fdone"></i><i class="exp" id="fexp"></i><b id="frange"></b></div>
+          <div class="flegend"><span><i style="background:var(--ok)"></i>done</span><span><i style="background:var(--accent)"></i>expected by the end</span>
+            <span><i style="background:var(--ink);height:2px"></i>90% interval</span><span class="right" id="fcommitted"></span></div>
+          <div class="meta" id="fsummary" style="margin-top:8px"></div>
+        </section>
+        <section>
+          <h2>Needs attention <span class="count" id="nfind">0</span></h2>
+          <div id="findings"></div>
+        </section>
+        <section>
+          <h2>People <span class="count" id="today"></span></h2>
+          <table>
+            <thead><tr><th>Person</th><th>Open issues</th><th>Sprint load</th><th>Status</th></tr></thead>
+            <tbody id="team"></tbody>
+          </table>
+        </section>
+        <section>
+          <h2>Sprint work without an owner <span class="count" id="nunowned">0</span>
+            <span class="modes right" id="modes"><button data-mode="suggest">Suggest</button><button data-mode="auto">Auto</button></span>
+          </h2>
+          <div class="meta" id="modeinfo" style="margin:-4px 0 8px"></div>
+          <div id="unowned"></div>
+          <div id="recent"></div>
+          <div class="row" id="newrow"><input id="newsum" placeholder="New task for the team, added to the sprint"><select id="newpts">
+            <option>1</option><option selected>2</option><option>3</option><option>5</option><option>8</option></select>
+            <button id="newadd">Add to sprint</button></div>
+          <div id="dupes"></div>
+          <div class="meta" id="newinfo"></div>
+        </section>
+        <section>
+          <h2>Unassigned backlog <span class="count" id="nback">0</span></h2>
+          <div class="chips" id="backlog"></div>
+        </section>
+      </div>
+
+      <div class="view" id="v-history" hidden>
+        <section>
+          <h2>Audit log <span class="tag ok" id="chain"></span> <span class="right meta" id="auditscope"></span></h2>
+          <div id="audit"></div>
+        </section>
+      </div>
+
+      <div class="view" id="v-roles" hidden>
+        <div class="cols">
+          <section>
+            <h2>People and their roles</h2>
+            <div id="members"></div>
+            <div class="meta" id="roleinfo" style="margin-top:8px"></div>
+          </section>
+          <section>
+            <h2>Roles of this team</h2>
+            <div id="roles"></div>
+            <div id="roleform"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <aside id="panel">
+      <section>
+        <h2>Assistant</h2>
+        <textarea id="text" placeholder="Ask about the work, or ask for a change in Jira"></textarea>
+        <div class="row examples" id="examples"></div>
+        <div class="row"><button class="primary" id="send">Send</button><button id="digest">Morning digest</button><span class="meta" id="busy"></span></div>
+        <div id="result"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<dialog id="issue">
+  <div class="head"><b id="ikey"></b><span id="istatus"></span><button class="x" id="iclose" title="Close">×</button></div>
+  <div id="isum"></div>
+  <div class="meta" id="imeta" style="margin-top:4px"></div>
+  <div class="acts" id="iacts"></div>
+  <div class="err" id="ierr"></div>
+</dialog>
+
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
@@ -174,11 +310,38 @@ const api = async (path, body) => {
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.json();
 };
-const EXAMPLES = ["Who is at risk this sprint and why?", "Who has spare capacity?",
-                  "Reassign the work of whoever is away to people with capacity."];
+// Remembering who you picked is a convenience; the page works the same without it.
+const store = {
+  get(k) { try { return localStorage.getItem("teamlens." + k); } catch (e) { return null; } },
+  set(k, v) { try { v == null ? localStorage.removeItem("teamlens." + k) : localStorage.setItem("teamlens." + k, v); } catch (e) { /* private mode */ } },
+};
 const KIND = {assigned_while_absent: ["away, owns work", "warn"], assigned_to_terminated: ["left, owns work", "bad"],
               overloaded: ["overloaded", "bad"], idle: ["no work", "warn"], stale_in_progress: ["stale", "warn"], unowned_in_sprint: ["no owner", "warn"]};
-let thread = null, issues = {}, names = {};
+const STATUSES = ["To Do", "In Progress", "In Review", "Done"];
+const NEXT = {"To Do": ["In Progress", "Start"], "In Progress": ["In Review", "Send to review"], "In Review": ["Done", "Done"]};
+const TONE = {"To Do": "", "In Progress": "info", "In Review": "warn", "Done": "ok"};
+const EXAMPLES = {
+  executive: ["Which teams are at risk this sprint, and why?", "Where is work assigned to people who are away or have left?"],
+  manager: ["Who is at risk this sprint and why?", "Who has spare capacity?", "Reassign the work of whoever is away to people with capacity."],
+  engineer: ["What is on my plate this sprint?", "Which unowned sprint issue fits my load best?"],
+};
+// What to ask the assistant about a problem, for people who may reassign work.
+const FIX = {
+  assigned_while_absent: n => `Reassign the open work of ${n}, who is away, to people with capacity.`,
+  assigned_to_terminated: n => `Reassign the open work of ${n}, who has left, to people with capacity.`,
+  overloaded: n => `${n} is overloaded. Move some of their sprint work to people with capacity.`,
+};
+let P = null;                 // the company: teams and the people who can be picked
+let S = {};                   // this session: me, rights, tab, team in view, its overview and assignment state
+let issues = {}, names = {}, thread = null, opened = null;
+
+const st = status => `<span class="tag ${TONE[status] || ""}">${esc(status)}</span>`;
+const keyBtn = k => `<button class="key" data-open="${esc(k)}" title="Open">${esc(k)}</button>`;
+const chipBtn = (k, text) => `<button class="chip" data-open="${esc(k)}" title="${esc(issues[k]?.summary)} · ${esc(issues[k]?.status)}">${esc(text || k)}</button>`;
+function flash(text) {
+  $("flash").textContent = text; $("flash").hidden = !text;
+  clearTimeout(flash.timer); if (text) flash.timer = setTimeout(() => { $("flash").hidden = true; }, 8000);
+}
 
 function markdown(text) {
   const out = []; let list = false, pre = false;
@@ -196,10 +359,122 @@ function markdown(text) {
   return out.join("");
 }
 
-async function loadOverview() {
-  const o = await api("/api/overview?actor=" + $("actor").value);
-  issues = o.issues;
-  names = Object.fromEntries(o.loads.map(x => [x.employee_id, x.name]));
+// ---- who are you ---------------------------------------------------------------------------
+
+function personCard(p) {
+  const where = p.team ? `${esc(p.team)} · ${esc(P.teams[p.team] || "")}` : "all teams";
+  return `<button class="card" data-enter="${esc(p.id)}"><b>${esc(p.name)}</b><span class="role">${esc(p.role)}</span><span class="chip">${where}</span></button>`;
+}
+function pickTeam(key) {
+  const keys = Object.keys(P.teams);
+  $("p-teams").hidden = keys.length < 2;
+  $("p-teams").innerHTML = keys.map(k => `<button data-pick="${esc(k)}" class="${k === key ? "on" : ""}">${esc(k)}</button>`).join("");
+  $("p-eng").innerHTML = P.people.filter(p => p.level === "engineer" && p.team === key).map(personCard).join("");
+}
+function showStart() {
+  S = {}; store.set("who", null); flash("");
+  $("app").hidden = true; $("start").hidden = false;
+  for (const id of ["me", "switch", "toggle"]) $(id).hidden = true;
+  document.body.classList.remove("panel");
+  const leaders = P.people.filter(p => p.level === "executive");
+  $("h-exec").hidden = !leaders.length;
+  $("p-exec").innerHTML = leaders.map(personCard).join("");
+  $("p-mgr").innerHTML = P.people.filter(p => p.level === "manager").map(personCard).join("");
+  pickTeam(Object.keys(P.teams)[0]);
+}
+function setPanel(open) {
+  document.body.classList.toggle("panel", open); $("toggle").classList.toggle("on", open);
+}
+async function enter(id) {
+  const me = await api("/api/me?actor=" + id);
+  S = {me, rights: new Set(me.rights), team: me.team, tab: null, roles: await api("/api/roles?actor=" + id)};
+  store.set("who", id);
+  $("start").hidden = true; $("app").hidden = false;
+  $("mename").textContent = me.name; $("mepos").textContent = me.position + (me.team ? " · " + me.team : "");
+  for (const x of ["me", "switch", "toggle"]) $(x).hidden = false;
+  setPanel(store.get("panel") !== "0" && innerWidth > 1100);
+  $("examples").innerHTML = (EXAMPLES[me.level] || EXAMPLES.engineer).map(t => `<button>${esc(t)}</button>`).join("");
+  $("digest").hidden = !me.team;
+  $("result").innerHTML = ""; $("text").value = ""; thread = null;
+  S.tab = S.rights.has("company.view") ? "company" : me.level === "engineer" ? "mine" : "team";
+  await refresh();
+}
+
+// ---- screens -------------------------------------------------------------------------------
+
+function tabs() {
+  const t = [], r = S.rights, own = S.o && S.team === S.me.team;
+  const mine = own ? (S.o.loads.find(x => x.employee_id === S.me.id)?.open_issues.length || 0) : 0;
+  if (r.has("company.view")) t.push(["company", "Company"]);
+  if (S.me.team && (S.me.level === "engineer" || mine)) t.push(["mine", "My work"]);
+  if (S.team && S.o) t.push(["team", S.me.team ? "Team" : "Team · " + (S.o.team_name || S.team)]);
+  if (r.has("audit.view")) t.push(["history", "History"]);
+  if (r.has("roles.grant") || r.has("roles.define")) t.push(["roles", "Roles"]);
+  return t;
+}
+async function loadTeam() {
+  const q = "actor=" + S.me.id + (S.team !== S.me.team ? "&team=" + S.team : "");
+  [S.o, S.a] = await Promise.all([api("/api/overview?" + q), api("/api/autoassign?" + q)]);
+  S.R = new Set(S.o.rights);  // rights in the team in view, which is what decides the buttons there
+  issues = S.o.issues;
+  names = Object.fromEntries(S.o.loads.map(x => [x.employee_id, x.name]));
+}
+async function refresh() {
+  try {
+    S.me = await api("/api/me?actor=" + S.me.id); S.rights = new Set(S.me.rights);  // a role may have been given or taken
+    if (S.team) await loadTeam();
+    const list = tabs();
+    if (!list.some(t => t[0] === S.tab)) S.tab = list[0][0];
+    $("tabs").innerHTML = list.map(([id, label]) => `<button data-tab="${id}" class="${id === S.tab ? "on" : ""}">${esc(label)}</button>`).join("");
+    for (const v of document.querySelectorAll(".view")) v.hidden = v.id !== "v-" + S.tab;
+    if (S.tab === "company") await loadCompany();
+    if (S.tab === "mine") renderMine();
+    if (S.tab === "team") renderTeam();
+    if (S.tab === "history") await loadAudit();
+    if (S.tab === "roles") await loadRoles();
+  } catch (e) { flash(e.message); }
+}
+const go = tab => { S.tab = tab; flash(""); return refresh(); };
+
+function renderMine() {
+  const me = S.o.loads.find(x => x.employee_id === S.me.id);
+  if (!me) return;
+  const pct = me.load == null ? 0 : Math.round(me.load * 100), av = me.availability;
+  const color = pct > 150 ? "var(--bad)" : pct > 100 ? "var(--warn)" : "var(--ok)";
+  $("mystatus").outerHTML = av.available_today ? '<span class="tag ok" id="mystatus">at work</span>'
+    : `<span class="tag warn" id="mystatus">away until ${esc(av.unavailable_until)}</span>`;
+  $("myload").innerHTML = `<div class="bar" style="height:12px"><i style="width:${Math.min(pct, 100)}%;background:${color}"></i></div>
+    <div class="load">${me.sprint_points} of ${me.capacity_points} sprint points${me.load == null ? "" : " · " + pct + "% of my capacity"}
+      · the team's sprint is ${S.o.forecast.at_risk ? "at risk" : "on track"}</div>`;
+  const order = {"In Progress": 0, "In Review": 1, "To Do": 2};
+  const mine = me.open_issues.slice().sort((a, b) => (order[issues[a].status] ?? 3) - (order[issues[b].status] ?? 3));
+  $("nmine").textContent = mine.length;
+  $("myissues").innerHTML = mine.map(k => {
+    const it = issues[k], next = NEXT[it.status];
+    return `<div class="item">${keyBtn(k)}<span class="sum">${esc(it.summary)}</span>
+      <span class="chip">${it.points} pts${it.in_sprint ? "" : " · backlog"}</span>${st(it.status)}
+      ${next ? `<button class="primary" data-move="${esc(k)}" data-to="${esc(next[0])}">${esc(next[1])}</button>` : ""}</div>`;
+  }).join("") || '<div class="empty">Nothing is assigned to you. Take something from the lists below.</div>';
+  const free = Object.keys(issues).filter(k => !issues[k].assignee && issues[k].status !== "Done");
+  const row = k => `<div class="item">${keyBtn(k)}<span class="sum">${esc(issues[k].summary)}</span><span class="chip">${issues[k].points} pts</span>
+      ${S.R.has("issues.take") ? `<button data-take="${esc(k)}">Take</button>` : ""}</div>`;
+  const sprint = free.filter(k => issues[k].in_sprint), back = free.filter(k => !issues[k].in_sprint);
+  $("nfree").textContent = sprint.length;
+  $("free").innerHTML = sprint.map(row).join("") || '<div class="empty">Every sprint issue has an owner.</div>';
+  $("nmyback").textContent = back.length;
+  $("myback").innerHTML = back.map(row).join("") || '<div class="empty">Empty.</div>';
+  $("mymay").textContent = S.me.rights.map(x => (S.roles.catalogue[x] || x).toLowerCase()).join("; ") + ".";
+}
+
+function renderTeam() {
+  const o = S.o, a = S.a, R = S.R, own = S.team === S.me.team;
+  const appoint = R.has("managers.appoint");
+  const candidates = o.loads.filter(x => x.availability.active && x.employee_id !== o.manager?.id && !o.acting.some(p => p.id === x.employee_id));
+  $("teamhead").innerHTML = `<b>${esc(o.team_name || o.team)}</b>
+    <span class="meta">managed by ${esc(o.manager?.name || "nobody")}</span>
+    ${o.acting.map(p => `<span class="chip grant">${esc(p.name)} · acting manager${appoint ? `<button title="Take it back" data-unappoint="${esc(p.id)}">×</button>` : ""}</span>`).join("")}
+    ${appoint ? `<select id="appoint"><option value="">+ acting manager</option>${candidates.map(x => `<option value="${esc(x.employee_id)}">${esc(x.name)}</option>`).join("")}</select>` : ""}
+    ${own ? "" : '<span class="tag">view only</span>'}`;
   $("today").textContent = o.today;
   const f = o.forecast, pct = v => (f.committed ? Math.min(100, 100 * v / f.committed) : 0) + "%";
   $("risk").textContent = f.at_risk ? "at risk" : "on track"; $("risk").className = "tag " + (f.at_risk ? "bad" : "ok");
@@ -207,33 +482,66 @@ async function loadOverview() {
   $("frange").style.left = pct(f.low); $("frange").style.width = pct(f.high - f.low);
   $("fcommitted").textContent = f.committed + " points committed";
   $("fsummary").textContent = f.summary;
+  $("nfind").textContent = o.findings.length;
+  $("findings").innerHTML = o.findings.map((x, n) => {
+    const [label, tone] = KIND[x.kind] || [x.kind, "warn"];
+    const fix = own && R.has("issues.assign") && FIX[x.kind] && x.name ? `<button class="small" data-fix="${n}">Fix with the assistant</button>` : "";
+    return `<div class="finding"><span class="tag ${tone}">${label}</span><span class="text">${esc(x.detail)}</span>${fix}</div>`;
+  }).join("") || '<div class="empty">Nothing needs attention.</div>';
   $("team").innerHTML = o.loads.map(x => {
-    const av = x.availability, pct = x.load == null ? 0 : Math.round(x.load * 100);
-    const color = pct > 150 ? "var(--bad)" : pct > 100 ? "var(--warn)" : "var(--ok)";
+    const av = x.availability, p = x.load == null ? 0 : Math.round(x.load * 100);
+    const color = p > 150 ? "var(--bad)" : p > 100 ? "var(--warn)" : "var(--ok)";
     const status = !av.active ? '<span class="tag bad">left the company</span>'
       : av.available_today ? '<span class="tag ok">at work</span>'
       : `<span class="tag warn">away until ${esc(av.unavailable_until)}</span>`;
-    const chips = x.open_issues.map(k => `<span class="chip" title="${esc(issues[k]?.summary)} · ${esc(issues[k]?.status)}">${esc(k)}</span>`).join("");
-    return `<tr><td><div class="name">${esc(x.name)}</div><div class="role">${esc(x.role)} · ${esc(x.employee_id)}</div></td>
-      <td><div class="chips">${chips || '<span class="empty">none</span>'}</div></td>
-      <td><div class="bar"><i style="width:${Math.min(pct, 100)}%;background:${color}"></i></div>
-          <div class="load">${x.sprint_points} of ${x.capacity_points} pts${x.load == null ? "" : " · " + pct + "%"}</div></td>
+    return `<tr><td><div class="name">${esc(x.name)}</div><div class="role">${esc(x.role)}</div></td>
+      <td><div class="chips">${x.open_issues.map(k => chipBtn(k)).join("") || '<span class="empty">none</span>'}</div></td>
+      <td><div class="bar"><i style="width:${Math.min(p, 100)}%;background:${color}"></i></div>
+          <div class="load">${x.sprint_points} of ${x.capacity_points} pts${x.load == null ? "" : " · " + p + "%"}</div></td>
       <td>${status}</td></tr>`;
   }).join("");
-  $("nfind").textContent = o.findings.length;
-  $("findings").innerHTML = o.findings.map(f => {
-    const [label, tone] = KIND[f.kind] || [f.kind, "warn"];
-    return `<div class="finding"><span class="tag ${tone}">${label}</span><span>${esc(f.detail)}</span></div>`;
-  }).join("") || '<div class="empty">Nothing needs attention.</div>';
+  $("modes").hidden = !a.can_configure;
+  for (const b of $("modes").children) b.className = b.dataset.mode === a.mode ? "on" : "";
+  $("modeinfo").textContent = a.mode === "auto"
+    ? `Auto: new sprint work gets an owner without asking${a.set_by ? ", switched on by " + a.set_by : ""}. Every assignment is explained and can be undone.`
+    : a.can_configure ? "Suggest: the system proposes an owner; you confirm." : "";
+  $("nunowned").textContent = a.suggestions.length;
+  $("unowned").innerHTML = a.suggestions.map(s => `<div class="sug"><div>${keyBtn(s.issue_key)} ${esc(s.summary)} · ${s.points} pts
+        ${s.area ? `<span class="tag ${s.area_confidence >= 0.5 ? "ok" : "warn"}" title="Kind of work, by ${esc(a.triage)}">${esc(s.area)}${s.area_confidence < 1 ? " · " + Math.round(s.area_confidence * 100) + "%" : ""}</span>` : ""}</div>
+      ${s.assignee_id && a.can_configure ? `<button class="primary small" data-act="assign" data-key="${esc(s.issue_key)}">Assign to ${esc(s.assignee_name)}</button>` : "<span></span>"}
+      ${a.can_configure ? `<div class="why">${esc(s.reason)}</div>` : ""}</div>`).join("") || '<div class="empty">Every sprint issue has an owner.</div>';
+  $("recent").innerHTML = a.recent.map(r => `<div class="sug"><div><span class="tag ok">${r.by_system ? "auto" : "confirmed"}</span> <b>${esc(r.issue_key)}</b> → ${esc(r.assignee_name)}</div>
+      ${a.can_configure ? `<button class="small" data-act="undo" data-key="${esc(r.issue_key)}">Undo</button>` : "<span></span>"}
+      <div class="why">${esc(r.reason)}</div></div>`).join("");
+  $("newrow").hidden = !(own && a.can_create);
   $("nback").textContent = o.backlog.length;
-  $("backlog").innerHTML = o.backlog.map(k => `<span class="chip" title="${esc(issues[k]?.summary)}">${esc(k)} · ${esc(issues[k]?.summary)}</span>`).join("")
-    || '<span class="empty">Empty.</span>';
+  $("backlog").innerHTML = o.backlog.map(k => chipBtn(k, k + " · " + issues[k]?.summary)).join("") || '<span class="empty">Empty.</span>';
+}
+
+async function loadCompany() {
+  const c = await api("/api/company?actor=" + S.me.id);
+  const risky = c.teams.filter(t => t.forecast.at_risk).length, people = c.teams.reduce((n, t) => n + t.people, 0);
+  $("csum").textContent = `${c.teams.length} teams · ${people} people · ${risky ? risky + " at risk" : "all on track"}`;
+  $("company").innerHTML = c.teams.map(t => {
+    const f = t.forecast, pct = v => (f.committed ? Math.min(100, 100 * v / f.committed) : 0) + "%";
+    const load = t.capacity ? Math.round(100 * t.points / t.capacity) : 0;
+    const color = load > 150 ? "var(--bad)" : load > 100 ? "var(--warn)" : "var(--ok)";
+    const problems = Object.entries(t.findings).map(([k, n]) => `<span class="tag ${(KIND[k] || [])[1] || "warn"}">${n} × ${(KIND[k] || [k])[0]}</span>`).join(" ")
+      || '<span class="tag ok">nothing</span>';
+    return `<tr class="go" data-goteam="${esc(t.key)}"><td><div class="name">${esc(t.name)}</div><div class="role">${esc(t.key)}</div></td>
+      <td>${esc(t.manager?.name || "nobody")}${t.acting.map(p => `<div class="role">acting: ${esc(p.name)}</div>`).join("")}</td>
+      <td>${t.people}${t.away ? ` <span class="tag warn">${t.away} away</span>` : ""}</td>
+      <td><div class="fbar thin"><i class="done" style="width:${pct(f.done)}"></i><i class="exp" style="width:${pct(f.expected)}"></i></div>
+          <div class="load">${Math.round(f.expected)} of ${f.committed} pts expected <span class="tag ${f.at_risk ? "bad" : "ok"}">${f.at_risk ? "at risk" : "on track"}</span></div></td>
+      <td><div class="bar"><i style="width:${Math.min(load, 100)}%;background:${color}"></i></div><div class="load">${t.points} of ${t.capacity} pts · ${load}%</div></td>
+      <td><div class="chips">${problems}</div></td>
+      <td><button class="small">Open</button></td></tr>`;
+  }).join("");
 }
 
 async function loadAudit() {
-  let a;
-  try { a = await api("/api/audit?actor=" + $("actor").value); }
-  catch (e) { $("chain").textContent = ""; $("audit").innerHTML = `<div class="empty">${esc(e.message)}</div>`; return; }
+  const a = await api("/api/audit?actor=" + S.me.id + "&limit=100");
+  $("auditscope").textContent = S.me.team ? "team " + S.me.team : "all teams";
   $("chain").textContent = a.intact ? `chain intact · ${a.total} entries` : "CHAIN BROKEN";
   $("chain").className = "tag " + (a.intact ? "ok" : "bad");
   $("audit").innerHTML = a.entries.map(e => {
@@ -247,65 +555,91 @@ async function loadAudit() {
       : e.kind === "auto_assign_undone" ? `${d.issue} unassigned` : e.kind === "issue_created" ? `${d.issue} ${d.summary}` : d.outcome;
     return `<div class="entry"><span class="t">${esc(e.at.slice(11, 19))}</span><span class="kind">${esc(e.kind)}</span>
       <span class="d" title="${esc(detail)}">${esc(e.actor)} · ${esc(detail)}</span></div>`;
-  }).join("") || '<div class="empty">No entries yet.</div>';
+  }).join("") || '<div class="empty">No entries yet. Every request, plan, approval and change lands here.</div>';
 }
 
-async function loadAuto() {
-  const a = await api("/api/autoassign?actor=" + $("actor").value);
-  for (const b of $("modes").children) { b.className = b.dataset.mode === a.mode ? "on" : ""; b.disabled = !a.can_configure; }
-  $("modeinfo").textContent = a.mode === "auto"
-    ? `Auto: new sprint work gets an owner without asking${a.set_by ? ", switched on by " + a.set_by : ""}. Every assignment is explained and can be undone.`
-    : "Suggest: the system proposes an owner; a person confirms.";
-  $("nunowned").textContent = a.suggestions.length;
-  $("unowned").innerHTML = a.suggestions.map(s => `<div class="sug"><div><b>${esc(s.issue_key)}</b> · ${esc(s.summary)} · ${s.points} pts
-        ${s.area ? `<span class="tag ${s.area_confidence >= 0.5 ? "ok" : "warn"}" title="Kind of work, by ${esc(a.triage)}">${esc(s.area)}${s.area_confidence < 1 ? " · " + Math.round(s.area_confidence * 100) + "%" : ""}</span>` : ""}</div>
-      ${s.assignee_id && a.can_configure ? `<button class="primary" data-act="assign" data-key="${esc(s.issue_key)}">Assign to ${esc(s.assignee_name)}</button>` : "<span></span>"}
-      <div class="why">${esc(s.reason)}</div></div>`).join("") || '<div class="empty">Every sprint issue has an owner.</div>';
-  $("recent").innerHTML = a.recent.map(r => `<div class="sug"><div><span class="tag ok">${r.by_system ? "auto" : "confirmed"}</span> <b>${esc(r.issue_key)}</b> → ${esc(r.assignee_name)}</div>
-      ${a.can_configure ? `<button data-act="undo" data-key="${esc(r.issue_key)}">Undo</button>` : "<span></span>"}
-      <div class="why">${esc(r.reason)}</div></div>`).join("");
-  $("newadd").disabled = !a.can_create;
-}
 async function loadRoles() {
-  const r = await api("/api/roles?actor=" + $("actor").value);
+  const r = S.roles = await api("/api/roles?actor=" + S.me.id);
   const canGive = r.mine.includes("roles.grant"), canDefine = r.mine.includes("roles.define");
-  $("myrights").textContent = "You may: " + (r.mine.map(x => r.catalogue[x].toLowerCase()).join("; ") || "nothing in this team") + ".";
   $("members").innerHTML = r.members.map(m => {
     const giveable = r.roles.filter(x => x.can_give && x.name !== m.base && !m.granted.includes(x.name));
     return `<div class="member"><span class="who2">${esc(m.name)}</span>
-      <span class="chip base" title="From the HR record; cannot be changed here">${esc(m.base)}</span>
-      ${m.granted.map(g => `<span class="chip role">${esc(g)}${canGive ? `<button title="Take away" data-do="revoke" data-who="${esc(m.id)}" data-role="${esc(g)}">×</button>` : ""}</span>`).join("")}
+      <span class="chip base" title="From the position in the HR record; cannot be changed here">${esc(m.base)}</span>
+      ${m.granted.map(g => `<span class="chip grant">${esc(g)}${canGive ? `<button title="Take away" data-do="revoke" data-who="${esc(m.id)}" data-role="${esc(g)}">×</button>` : ""}</span>`).join("")}
       ${giveable.length ? `<select data-who="${esc(m.id)}"><option value="">+ give a role</option>${giveable.map(x => `<option>${esc(x.name)}</option>`).join("")}</select>` : ""}</div>`;
   }).join("");
   $("roles").innerHTML = r.roles.map(x => `<div class="roledef"><div class="head"><b>${esc(x.name)}</b>
       <span class="meta">${x.built_in ? "built in" : "this team's own"}</span>
-      ${!x.built_in && canDefine ? `<button class="danger" data-do="delete" data-role="${esc(x.name)}">Delete</button>` : ""}</div>
+      ${!x.built_in && canDefine ? `<button class="danger small" data-do="delete" data-role="${esc(x.name)}">Delete</button>` : ""}</div>
       <div class="chips">${x.rights.map(k => `<span class="chip">${esc(r.catalogue[k])}</span>`).join("")}</div></div>`).join("");
   $("roleform").innerHTML = !canDefine ? "" : `<div class="roledef"><div class="head"><b>New role</b></div>
-      <input id="rolename" placeholder="name, for example tech-lead">
-      <div class="rights">${r.mine.map(k => `<label><input type="checkbox" value="${esc(k)}" style="flex:none;min-width:0"> ${esc(r.catalogue[k])}</label>`).join("")}</div>
+      <div class="row"><input id="rolename" placeholder="name, for example tech-lead"></div>
+      <div class="rights">${r.mine.map(k => `<label><input type="checkbox" value="${esc(k)}"> ${esc(r.catalogue[k])}</label>`).join("")}</div>
       <button data-do="define">Create role</button></div>`;
 }
 async function roleAction(path, body) {
   $("roleinfo").textContent = "";
-  try { await api("/api/roles/" + path, {actor: $("actor").value, ...body}); } catch (e) { $("roleinfo").textContent = e.message; }
-  refresh();
+  try { await api("/api/roles/" + path, {actor: S.me.id, ...body}); }
+  catch (e) { S.tab === "roles" ? $("roleinfo").textContent = e.message : flash(e.message); }
+  await refresh();
 }
-const refresh = () => { loadOverview(); loadAuto(); loadAudit(); loadRoles(); };
+
+// ---- changes -------------------------------------------------------------------------------
+
+async function change(path, body, where) {
+  try { await api(path, {actor: S.me.id, ...body}); }
+  catch (e) { if (where) where.textContent = e.message; else flash(e.message); return false; }
+  flash(""); await refresh(); return true;
+}
+const move = (key, status, where) => change("/api/issues/move", {issue_key: key, status}, where);
+const assign = (key, to, where) => change("/api/issues/assign", {issue_key: key, assignee_id: to}, where);
+
+function openIssue(key) {
+  const it = issues[key]; if (!it) return;
+  opened = key;
+  const R = S.R, mine = it.assignee === S.me.id, own = S.team === S.me.team, acts = [];
+  $("ikey").textContent = key; $("istatus").outerHTML = `<span class="tag ${TONE[it.status] || ""}" id="istatus">${esc(it.status)}</span>`;
+  $("isum").textContent = it.summary; $("ierr").textContent = "";
+  $("imeta").textContent = `${it.assignee ? "owned by " + (names[it.assignee] || it.assignee) : "no owner"} · ${it.points} pts · ${it.in_sprint ? "in the sprint" : "backlog"}`;
+  if (it.status !== "Done" && own) {
+    const movable = mine ? R.has("issues.move_own") : R.has("issues.move_any");
+    const to = STATUSES.filter(s => s !== it.status && (mine || s !== "Done"));  // only the owner closes work
+    if (movable) acts.push(`<div class="row"><span class="meta">Move to</span>${to.map(s => `<button class="small" data-dlg="move" data-to="${esc(s)}">${esc(s)}</button>`).join("")}</div>`);
+    if (!it.assignee && R.has("issues.take")) acts.push('<div class="row"><button class="primary small" data-dlg="take">Take it</button></div>');
+    if (mine && R.has("issues.move_own")) acts.push('<div class="row"><button class="small" data-dlg="drop">Give it up</button></div>');
+    if (R.has("issues.assign")) {
+      const last = x => !x.availability.available_today * 2 + (x.employee_id === S.o.manager?.id);  // people who can take it now come first
+      const people = S.o.loads.filter(x => x.availability.active && x.employee_id !== it.assignee)
+        .sort((a, b) => last(a) - last(b) || (a.load ?? 9) - (b.load ?? 9));
+      acts.push(`<div class="row"><span class="meta">Assign to</span><select id="ito">${people.map(x =>
+        `<option value="${esc(x.employee_id)}">${esc(x.name)}${x.availability.available_today ? "" : " (away)"} · ${x.sprint_points}/${x.capacity_points} pts</option>`).join("")}
+        ${it.assignee ? '<option value="">nobody</option>' : ""}</select><button class="primary small" data-dlg="assign">Assign</button></div>`);
+    }
+  }
+  $("iacts").innerHTML = acts.join("") || `<div class="meta">${it.status === "Done" ? "Done issues are final." : "You can look at this issue. Changing it takes a right you do not hold here."}</div>`;
+  if (!$("issue").open) $("issue").showModal();
+}
+async function dialogAction(d) {
+  const err = $("ierr"), key = opened;
+  const ok = d.dlg === "move" ? await move(key, d.to, err) : d.dlg === "take" ? await assign(key, S.me.id, err)
+    : d.dlg === "drop" ? await assign(key, null, err) : await assign(key, $("ito").value || null, err);
+  if (ok) $("issue").close();
+}
+
 async function act(what, issue_key) {
-  try { const r = await api("/api/autoassign/" + what, {actor: $("actor").value, issue_key}); if (!r.ok) $("newinfo").textContent = r.detail; }
+  try { const r = await api("/api/autoassign/" + what, {actor: S.me.id, issue_key}); if (!r.ok) $("newinfo").textContent = r.detail; }
   catch (e) { $("newinfo").textContent = e.message; }
-  refresh();
+  await refresh();
 }
 async function setMode(mode) {
-  try { await api("/api/autoassign/mode", {actor: $("actor").value, mode}); } catch (e) { $("newinfo").textContent = e.message; }
-  refresh();
+  try { await api("/api/autoassign/mode", {actor: S.me.id, mode}); } catch (e) { $("newinfo").textContent = e.message; }
+  await refresh();
 }
 async function checkDuplicates() {
   const text = $("newsum").value.trim();
   if (text.length < 8) { $("dupes").innerHTML = ""; return; }
   try {
-    const r = await api("/api/similar", {actor: $("actor").value, text});
+    const r = await api("/api/similar", {actor: S.me.id, text});
     if (text !== $("newsum").value.trim()) return;  // the user kept typing; this answer is stale
     $("dupes").innerHTML = r.matches.length ? `<div class="sug"><div><span class="tag warn">may already exist</span></div><span></span>
       <div class="why">${r.matches.map(m => `<b>${esc(m.key)}</b> ${esc(m.summary)} · similarity ${m.similarity}`).join("<br>")}</div></div>` : "";
@@ -314,83 +648,102 @@ async function checkDuplicates() {
 async function addIssue() {
   const summary = $("newsum").value.trim(); if (!summary) return;
   try {
-    const r = await api("/api/issues", {actor: $("actor").value, summary, points: +$("newpts").value});
+    const r = await api("/api/issues", {actor: S.me.id, summary, points: +$("newpts").value});
     const done = r.applied.find(a => a.issue_key === r.issue_key);
     $("newinfo").textContent = `${r.issue_key} created.` + (done ? " " + done.detail : "");
     $("newsum").value = ""; $("dupes").innerHTML = "";
   } catch (e) { $("newinfo").textContent = e.message; }
-  refresh();
+  await refresh();
 }
+
+// ---- assistant -----------------------------------------------------------------------------
 
 function describe(step) {
   if (step.tool === "assign_issue") return `Assign <b>${esc(step.issue_key)}</b> to <b>${esc(step.assignee_id ? (names[step.assignee_id] || step.assignee_id) : "nobody")}</b>`;
   if (step.tool === "transition_issue") return `Move <b>${esc(step.issue_key)}</b> to <b>${esc(step.status)}</b>`;
   return `Create issue <b>${esc(step.summary)}</b>`;
 }
-
-function show(r) {
+function showAnswer(r) {
   thread = r.thread;
-  const meta = `<div class="meta">${esc(r.outcome)} · ${r.usage.calls} model calls · ${r.usage.tokens} tokens · $${r.usage.usd}</div>`;
+  const meta = `<div class="meta" style="margin-top:8px">${esc(r.outcome)} · ${r.usage.calls} model calls · ${r.usage.tokens} tokens · $${r.usage.usd}</div>`;
   if (r.outcome === "needs_approval") {
     $("result").innerHTML = `<div class="plan"><h3>Plan: ${esc(r.plan.summary)}</h3>
       ${r.plan.steps.map((s, n) => `<div class="step">${n + 1}. ${describe(s)}<div class="why">${esc(s.reason)}</div></div>`).join("")}
-      <div class="row"><button class="primary" onclick="decide(true)">Approve</button>
-      <button class="danger" onclick="decide(false)">Reject</button>
-      <span class="meta">Nothing changes in Jira until you approve.</span></div></div>${meta}`;
+      <div class="row"><button class="primary" data-decide="1">Approve</button><button class="danger" data-decide="0">Reject</button></div>
+      <div class="meta" style="margin-top:8px">Nothing changes in Jira until you approve.</div></div>${meta}`;
   } else {
     $("result").innerHTML = `<div class="answer">${markdown(r.answer)}</div>${meta}`;
   }
 }
-
-async function run(job) {
-  $("send").disabled = true; $("busy").textContent = "working…";
-  try { show(await job()); } catch (e) { $("result").innerHTML = `<div class="answer">${esc(e.message)}</div>`; }
-  $("send").disabled = false; $("busy").textContent = "";
-  refresh();
+async function run(job, busy) {
+  $("send").disabled = $("digest").disabled = true; $("busy").textContent = busy || "working…";
+  try { await job(); } catch (e) { $("result").innerHTML = `<div class="answer">${esc(e.message)}</div>`; }
+  $("send").disabled = $("digest").disabled = false; $("busy").textContent = "";
+  await refresh();
 }
-const send = () => $("text").value.trim() && run(() => api("/api/ask", {actor: $("actor").value, text: $("text").value.trim()}));
-const decide = approved => run(() => api("/api/decide", {actor: $("actor").value, thread, approved}));
+const send = () => $("text").value.trim() && run(async () => showAnswer(await api("/api/ask", {actor: S.me.id, text: $("text").value.trim()})));
+const decide = approved => run(async () => showAnswer(await api("/api/decide", {actor: S.me.id, thread, approved})));
+const digest = () => run(async () => {
+  const d = await api("/api/digest", {actor: S.me.id});
+  const fixed = d.problems_found.length - d.problems_left.length;
+  const note = d.problems_left.length ? `<span class="tag bad">${d.problems_left.length} statement(s) could not be verified</span>`
+    : d.problems_found.length ? `<span class="tag ok">checked against the data · ${fixed} statement(s) corrected</span>`
+    : `<span class="tag ok">checked against the data · nothing to correct</span>`;
+  $("result").innerHTML = `<div class="answer">${markdown(d.text)}</div><div class="meta" style="margin-top:8px">${note} · ${d.usage.calls} model calls · ${d.usage.tokens} tokens · $${d.usage.usd}</div>`;
+}, "writing and checking…");
+
+// ---- wiring --------------------------------------------------------------------------------
+
+document.addEventListener("click", e => {
+  const el = e.target.closest("button, tr.go"); if (!el) return;
+  const d = el.dataset;
+  if (d.enter) enter(d.enter).catch(x => flash(x.message));
+  else if (d.pick) pickTeam(d.pick);
+  else if (d.tab) go(d.tab);
+  else if (d.open) openIssue(d.open);
+  else if (d.move) move(d.move, d.to);
+  else if (d.take) assign(d.take, S.me.id);
+  else if (d.dlg) dialogAction(d);
+  else if (d.act) act(d.act, d.key);
+  else if (d.mode) setMode(d.mode);
+  else if (d.fix) { const x = S.o.findings[+d.fix]; $("text").value = FIX[x.kind](x.name); setPanel(true); $("text").focus(); }
+  else if (d.unappoint) roleAction("revoke", {employee_id: d.unappoint, role: "manager"});
+  else if (d.do === "revoke") roleAction("revoke", {employee_id: d.who, role: d.role});
+  else if (d.do === "delete") roleAction("delete", {name: d.role});
+  else if (d.do === "define") roleAction("define", {name: $("rolename").value, rights: [...document.querySelectorAll("#roleform input:checked")].map(x => x.value)});
+  else if (d.decide) decide(d.decide === "1");
+  else if (el.closest("#examples")) { $("text").value = el.textContent; $("text").focus(); }
+  else if (el.closest("tr.go")) { S.team = el.closest("tr.go").dataset.goteam; go("team"); }
+});
+document.addEventListener("change", e => {
+  const el = e.target;
+  if (el.id === "appoint" && el.value) roleAction("grant", {employee_id: el.value, role: "manager"});
+  else if (el.closest("#members") && el.tagName === "SELECT" && el.value) roleAction("grant", {employee_id: el.dataset.who, role: el.value});
+});
 
 (async () => {
-  const p = await api("/api/people");
-  $("src").textContent = `team ${p.team} · ${p.source}`;
-  if (p.notice) { $("notice").textContent = p.notice; $("notice").hidden = false; }
-  if (p.demo) {
+  P = await api("/api/people");
+  const keys = Object.keys(P.teams);
+  $("src").textContent = `${keys.length > 1 ? keys.length + " teams" : "team " + keys[0]} · ${P.source}`;
+  if (P.notice) { $("notice").textContent = P.notice; $("notice").hidden = false; }
+  if (P.demo) {
     $("reset").hidden = false;
-    $("reset").onclick = async () => { await api("/api/demo/reset", {}); $("result").innerHTML = ""; $("newinfo").textContent = ""; refresh(); };
+    $("reset").onclick = async () => {
+      await api("/api/demo/reset", {}); $("result").innerHTML = ""; $("newinfo").textContent = "";
+      if (S.me) await refresh();
+    };
   }
-  $("actor").innerHTML = p.people.map(x => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.role)}</option>`).join("");
-  $("examples").innerHTML = EXAMPLES.map(t => `<button>${esc(t)}</button>`).join("");
-  $("examples").onclick = e => { if (e.target.tagName === "BUTTON") $("text").value = e.target.textContent; };
-  $("actor").onchange = () => { $("result").innerHTML = ""; $("newinfo").textContent = ""; refresh(); };
-  $("modes").onclick = e => { if (e.target.dataset.mode) setMode(e.target.dataset.mode); };
+  $("switch").onclick = showStart;
+  $("toggle").onclick = () => { const open = !document.body.classList.contains("panel"); setPanel(open); store.set("panel", open ? "1" : "0"); };
+  $("iclose").onclick = () => $("issue").close();
+  $("issue").onclick = e => { if (e.target === $("issue")) $("issue").close(); };  // a click on the backdrop
   $("newadd").onclick = addIssue;
   let typing;
   $("newsum").oninput = () => { clearTimeout(typing); typing = setTimeout(checkDuplicates, 450); };
-  $("members").onchange = e => { if (e.target.tagName === "SELECT" && e.target.value) roleAction("grant", {employee_id: e.target.dataset.who, role: e.target.value}); };
-  for (const id of ["members", "roles", "roleform"]) $(id).onclick = e => {
-    const d = e.target.dataset;
-    if (d.do === "revoke") roleAction("revoke", {employee_id: d.who, role: d.role});
-    if (d.do === "delete") roleAction("delete", {name: d.role});
-    if (d.do === "define") roleAction("define", {name: $("rolename").value, rights: [...document.querySelectorAll("#roleform input:checked")].map(x => x.value)});
-  };
-  for (const id of ["unowned", "recent"]) $(id).onclick = e => { if (e.target.dataset.act) act(e.target.dataset.act, e.target.dataset.key); };
-  $("send").onclick = send;
-  $("digest").onclick = async () => {
-    $("send").disabled = $("digest").disabled = true; $("busy").textContent = "writing and checking…";
-    try {
-      const d = await api("/api/digest", {actor: $("actor").value});
-      const fixed = d.problems_found.length - d.problems_left.length;
-      const note = d.problems_left.length ? `<span class="tag bad">${d.problems_left.length} statement(s) could not be verified</span>`
-        : d.problems_found.length ? `<span class="tag ok">checked against the data · ${fixed} statement(s) corrected</span>`
-        : `<span class="tag ok">checked against the data · nothing to correct</span>`;
-      $("result").innerHTML = `<div class="answer">${markdown(d.text)}</div><div class="meta">${note} · ${d.usage.calls} model calls · ${d.usage.tokens} tokens · $${d.usage.usd}</div>`;
-    } catch (e) { $("result").innerHTML = `<div class="answer">${esc(e.message)}</div>`; }
-    $("send").disabled = $("digest").disabled = false; $("busy").textContent = "";
-    loadAudit();
-  };
+  $("send").onclick = send; $("digest").onclick = digest;
   $("text").onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) send(); };
-  refresh();
+  const who = store.get("who");
+  if (who && P.people.some(p => p.id === who)) enter(who).catch(showStart); else showStart();
 })();
 </script>
 </body>

@@ -167,7 +167,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             tracing = Tracing() if model is not None else Tracing.from_settings(
                 s.langfuse_public_key, s.langfuse_secret_key, s.langfuse_host)
             app.state.tracing = tracing
-            app.state.box = Toolbox(client, people, c.today, app.state.access, finder, tracing)
+            app.state.box = Toolbox(client, people, c.today, app.state.access, finder, tracing, app.state.teams)
             app.state.model = model or ClaudeModel(api_key=s.anthropic_api_key, tracing=tracing)
             # A real run keeps paused conversations in SQLite, so a plan waiting for approval survives a restart.
             saved, checkpointer = state_path or (None if model is not None else data / "state.sqlite"), None
@@ -255,7 +255,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             teams.append({
                 "key": key, "name": TEAMS.get(key, key), **managers(world),
                 "people": len(here), "away": sum(not x.availability.available_today for x in here),
-                "points": sum(x.sprint_points for x in here), "capacity": round(sum(x.capacity_points for x in here), 1),
+                # Capacity is the forecast's number (managers carry no sprint work), so the two columns agree.
+                "points": sum(x.sprint_points for x in here), "capacity": f.capacity,
                 "forecast": {"committed": f.committed, "done": f.done, "expected": f.expected, "at_risk": f.at_risk},
                 "findings": kinds, "unowned": len(app.state.auto.unowned(world)),
             })
@@ -272,7 +273,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
     async def overview(actor: str, team: str | None = None) -> dict:
         world = await guarded(app.state.box.world(actor, team))
         names = {x.employee_id: x.name for x in world.overview.loads}
-        issues = {k: {"summary": i.summary, "status": i.status, "points": i.story_points, "in_sprint": i.in_sprint}
+        issues = {k: {"summary": i.summary, "status": i.status, "points": i.story_points, "in_sprint": i.in_sprint,
+                      "assignee": i.assignee_id}
                   for k, i in world.issues.items()}
         backlog = [k for k, i in world.issues.items() if i.assignee_id is None and i.status != "Done" and not i.in_sprint]
         return {"today": str(world.overview.today), "actor": world.actor.model_dump(), "rights": sorted(world.rights),
