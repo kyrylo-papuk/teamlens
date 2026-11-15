@@ -10,7 +10,7 @@ enforced by what the code can reach, not by what the prompt asks for.**
 | Class | Examples | Lives in | Who can read it | May enter an LLM prompt |
 |---|---|---|---|---|
 | **Internal** | issue key, title, status, story points, sprint | Jira | any employee | yes |
-| **Confidential** | who owns which issue, load against capacity, weekly hours, role, manager, availability as dates | Jira; HRM (served by the People agent) | the team's manager, through the Delivery agent | yes, for the requesting manager's own team |
+| **Confidential** | who owns which issue, load against capacity, weekly hours, role, manager, availability as dates | Jira; HRM (served by the People agent) | members of the team, and leadership for every team | yes, for a team the requester may see |
 | **Restricted** | reason for absence, salary, e-mail, anything else in the HR record | HRM only | the People side only | **never** |
 
 Availability is the interesting case. "Away until 19 November" is needed to plan work, so it is
@@ -28,6 +28,10 @@ record at that line: `Availability` carries dates, and no type on the Delivery s
 | The Delivery model cannot change Jira | write tools are not in its tool list; it can only submit a plan | `test_model_is_never_offered_write_tools` |
 | Changes follow company rules | `delivery/policy.py`, plain code, run at proposal time and again before every step | `test_policy_rules`, `test_step_is_rechecked_when_the_world_changed_after_approval` |
 | Who may change what is decided by rights, not job titles; nobody can hand out more than they hold | `access.py`, plain code, no model anywhere near it | `test_nobody_can_hand_out_more_than_they_hold`, `test_a_granted_role_changes_what_the_policy_allows` |
+| The model reads only issues of teams the requester may see | `Toolbox.run` checks the project of every Jira read, whatever the model asked for | `test_the_model_reads_only_issues_of_teams_the_person_may_see` |
+| A button and the agent have one way into Jira: the same policy, the same code, the same log | `delivery/direct.py` builds one step and hands it to `policy.check` | `test_buttons_go_through_the_same_rules_and_log_as_plans` |
+| A higher position widens the view, not the rights: leadership sees every team and changes no issue | `access.py`: the `executive` role holds no right over issues; `Toolbox.world` refuses a team the person has no right to see | `test_leadership_sees_every_team_and_changes_nothing_but_who_manages`, `test_leadership_gets_every_team_from_the_same_tools_and_changes_no_issue` |
+| The audit log and the list of who holds which role are returned by right, not hidden by the page | `web/app.py` checks `audit.view` and the role rights before it answers | `test_audit_log_and_role_holders_are_shown_by_right` |
 | A person approves every change the agent proposes, and only the requester can | `approve` node pauses the graph | `test_rejection_and_foreign_approver_change_nothing` |
 | The system assigns work on its own only where someone with the right switched that on; each assignment is explained, recorded and can be undone | `delivery/autoassign.py` | `test_auto_mode_assigns_by_itself_and_can_be_undone` |
 | Every decision is on record and tampering is visible | `delivery/audit.py`, hash-chained | `test_audit_chain_detects_tampering` |

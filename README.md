@@ -13,7 +13,7 @@ It is built the way an agent has to be built where mistakes cost money: the mode
 that can change anything, restricted HR data never reaches it, and each design choice that could be measured
 was measured.
 
-![The team page: sprint forecast, load per person, problems found, work without an owner, the agent, audit log, roles](docs/screenshots/overview.png)
+![A manager's screen: forecast, what needs attention, load per person, and a plan from the assistant waiting for approval](docs/screenshots/team.png)
 
 ## What it does
 
@@ -32,10 +32,31 @@ was measured.
 - **Morning digest.** Written by the model, then checked claim by claim against the data before it is shown.
 - **Rights and roles.** Who may do what is a set of rights, grouped into roles a team can define and hand out.
   Managed by buttons and plain code; no model is involved.
+- **A screen per position.** A position in the HR record brings a role, and the role decides which screens a
+  person gets. An engineer sees their own work and what they can take. A manager sees the team, its history and
+  its roles. Leadership sees every team on one screen and can name an acting manager.
+- **Buttons under the same rules.** Taking, handing over or moving an issue does not need the model. A button
+  sends one step through the same policy, the same code and the same audit log as the agent's plans.
 
-| A plan waiting for approval | The checked digest |
+| Who are you | An engineer: my work | Leadership: every team |
+|---|---|---|
+| ![The start screen: leadership, team managers, engineers by team](docs/screenshots/who.png) | ![An engineer's issues with one button each, and work nobody owns with a Take button](docs/screenshots/my-work.png) | ![One line per team with forecast, load and problems, and the assistant answering for all of them](docs/screenshots/company.png) |
+
+| One issue, with the actions this person may take | The checked digest |
 |---|---|
-| ![A plan with a reason per step and Approve / Reject buttons](docs/screenshots/plan.png) | ![The morning digest, marked as checked against the data](docs/screenshots/digest.png) |
+| ![An issue opened by the manager: move it, or assign it to someone](docs/screenshots/issue.png) | ![The morning digest, marked as checked against the data](docs/screenshots/digest.png) |
+
+### Who sees what
+
+| Position | Role it brings | Screens | May change |
+|---|---|---|---|
+| CEO, CTO, COO | `executive` | Company, any team (view only), History of all teams | who is an acting manager of a team; no issue |
+| Engineering Manager | `manager` | Team, History, Roles | any issue of the team, automatic assignment, the team's roles |
+| any other member of a team | `engineer` | My work, Team (view only) | their own issues; work nobody owns |
+
+The table of positions is one dictionary in `access.py`; a new position is one more line. A higher position
+widens what a person sees. It does not add the rights of the people below: the CTO cannot move a ticket, and
+that is a test, not a convention. What the page hides the server also refuses.
 
 ## Architecture
 
@@ -195,7 +216,7 @@ to the host. Without a model key everything that is plain code works and the age
 ```bash
 python -m venv .venv && .venv/Scripts/activate        # or: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                             # 84 tests, no keys, no network
+pytest -q                                             # 90 tests, no keys, no network
 TEAMLENS_FAKE=1 python -m teamlens.web                # the page on the fictional company
 ```
 
@@ -236,12 +257,13 @@ src/teamlens/
     agent.py         LangGraph graph: think, tools, review, approve, execute
     policy.py        rules every change must pass, in plain code
     tools.py         what the model can see; the only path to Jira's write tools
+    direct.py        a change made with a button: one step, the same rules and log
     autoassign.py    automatic assignment and its two modes
     digest.py        the digest and its reflection loop
     audit.py         hash-chained audit log
     model.py         Claude behind one interface; a scripted model for tests
   people_agent/    the People agent: A2A service, Microsoft Agent Framework
-  access.py        rights, roles, grants
+  access.py        rights, roles, grants, and the role each position brings
   hrm.py           the only module that reads restricted HR fields
   jira.py, jira_cloud.py, mcp_servers.py     Jira behind one interface, in memory or Cloud, exposed over MCP
   overview.py      who works on what, problems found
@@ -259,8 +281,11 @@ Stated plainly, so nobody has to find it:
 
 - **The company is fictional.** People, absences and sprint history are generated. Jira Cloud is real when
   configured, limited to one team because the free plan allows ten accounts.
-- **There is no login.** The page has a "working as" switch to show how different people see and may do
-  different things. A deployment needs SSO in front of it.
+- **There is no login.** The page starts by asking who you are, to show how people in different positions see
+  and may do different things. A deployment needs SSO in front of it.
+- **It does not edit the organisation.** Who is in which team and who holds which position comes from the HR
+  system and is only read here. Leadership can name an acting manager; that is a role in TeamLens, not a change
+  to an HR record.
 - **Storage is local.** The audit log is a file and paused conversations are in SQLite. Production needs a
   database with encryption at rest, retention periods and erasure on request.
 - **Tokens between the agents are static.** The agent card already declares bearer authentication; production
