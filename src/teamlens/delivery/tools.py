@@ -156,21 +156,26 @@ class Toolbox:
         payload = result.structured_content or {}
         return payload["result"] if set(payload) == {"result"} else payload
 
-    async def world(self, actor_id: str) -> World:
+    async def world(self, actor_id: str, team: str | None = None) -> World:
+        """The state of a team as ``actor_id`` sees it: their own team, or another one they have the right to see."""
         try:
-            return await self._world(actor_id)
+            return await self._world(actor_id, team)
         except (PeopleAgentError, httpx.HTTPError) as exc:
             raise ToolFailure(f"The People agent is unavailable: {exc}") from exc
 
-    async def _world(self, actor_id: str) -> World:
+    async def _world(self, actor_id: str, team: str | None) -> World:
         actor = await self._people.person(actor_id)
         if actor is None:
             raise ToolFailure(f"Unknown employee {actor_id}.")
-        team = await self._people.team(actor.team) if actor.team else []
-        self.tracing.masker.learn([actor, *team])  # so their names never reach a trace
-        availability = await self._people.availability([p.id for p in team])
-        issues = [Issue(**i) for i in await self._call_jira("search_issues", {"project": actor.team})] if actor.team else []
-        return World(actor=actor, rights=self.access.rights(actor), overview=build(team, availability, issues, self._today),
+        team = team or actor.team
+        rights = self.access.rights(actor, team)
+        if team != actor.team and "overview.view" not in rights:
+            raise PermissionError(f"{actor.name} does not have the right to see the work of team {team}.")
+        members = await self._people.team(team) if team else []
+        self.tracing.masker.learn([actor, *members])  # so their names never reach a trace
+        availability = await self._people.availability([p.id for p in members])
+        issues = [Issue(**i) for i in await self._call_jira("search_issues", {"project": team})] if team else []
+        return World(actor=actor, team=team, rights=rights, overview=build(members, availability, issues, self._today),
                      issues={i.key: i for i in issues})
 
     async def run(self, name: str, arguments: dict, actor_id: str) -> str:

@@ -17,6 +17,8 @@ TODAY = date(2026, 11, 16)  # fixed "now" of the fictional company; the live dem
 
 TEAMS = {"PAY": "Payments", "LED": "Ledger", "KYC": "Onboarding", "MOB": "Mobile", "PLT": "Platform"}
 OTHER_DEPARTMENTS = ["Sales", "Compliance", "Finance", "People", "Support", "Marketing", "Operations"]
+LEADERSHIP = "Leadership"  # department of the people who see every team
+CHIEFS = ["Chief Executive Officer", "Chief Technology Officer", "Chief Operating Officer"]
 ROLES = ["Backend Engineer", "Backend Engineer", "Frontend Engineer", "QA Engineer",
          "Backend Engineer", "Mobile Engineer", "DevOps Engineer", "Engineering Manager"]
 FIRST = ["Dana", "Marek", "Ines", "Tomas", "Leila", "Oskar", "Priya", "Jonas", "Sofia", "Emre",
@@ -148,6 +150,15 @@ def generate(seed: int = 7, today: date = TODAY) -> Company:
     for _ in range(5):
         issue("KYC", overloaded, "In Progress", 8)
     planted["stale_in_progress"] = [issue("PLT", by_team["PLT"][0], "In Progress", 3, stale_days=12).key]
+
+    # Company leadership: the last three people in the HR system, with no engineering team. Set here, from
+    # fixed values, so the random stream above, and with it every team's data, is exactly what it was before.
+    for e, title in zip(employees[-3:], CHIEFS, strict=True):
+        e.department, e.role, e.weekly_hours = LEADERSHIP, title, 40
+    cto = employees[-2]
+    for e in employees:
+        if e.role == "Engineering Manager":
+            e.manager_id = cto.id
 
     return Company(today=today, sprint_start=today - timedelta(days=7), sprint_end=today + timedelta(days=6),
                    employees=employees, absences=absences, issues=issues, planted=planted)

@@ -7,6 +7,8 @@ from teamlens.web.app import create_app
 C = generate()
 PAY = [e for e in C.employees if e.team == "PAY"]
 MANAGER, AWAY, FREE = PAY[0].id, PAY[1].id, PAY[2].id
+CTO = next(e.id for e in C.employees if e.role == "Chief Technology Officer")
+KYC = [e for e in C.employees if e.team == "KYC"]
 ISSUE = C.planted["assigned_while_absent"][0]
 
 
@@ -18,7 +20,10 @@ def test_page_and_overview(tmp_path):
     with client(tmp_path) as http:
         assert "TeamLens" in http.get("/").text
         people = http.get("/api/people").json()
-        assert people["team"] == "PAY" and len(people["people"]) == 8
+        assert people["team"] == "PAY" and list(people["teams"]) == ["PAY", "LED", "KYC", "MOB", "PLT"]
+        levels = [p["level"] for p in people["people"]]
+        assert (levels.count("executive"), levels.count("manager"), levels.count("engineer")) == (3, 5, 34)  # one has left
+        assert len([p for p in people["people"] if p["team"] == "PAY"]) == 8
         o = http.get("/api/overview", params={"actor": MANAGER}).json()
         assert [f["kind"] for f in o["findings"]] == ["assigned_while_absent"] and len(o["backlog"]) == 6
         away = next(x for x in o["loads"] if x["employee_id"] == AWAY)
@@ -122,6 +127,36 @@ def test_audit_log_and_role_holders_are_shown_by_right(tmp_path):
         mine = http.get("/api/roles", params={"actor": FREE}).json()
         assert mine["members"] == [] and mine["roles"] == [] and not mine["can_manage"] and "issues.take" in mine["mine"]
         assert len(http.get("/api/roles", params={"actor": MANAGER}).json()["members"]) == 8
+
+
+def test_leadership_sees_every_team_and_changes_nothing_but_who_manages(tmp_path):
+    engineer = KYC[1].id
+    with client(tmp_path) as http:
+        me = http.get("/api/me", params={"actor": CTO}).json()
+        assert me["level"] == "executive" and me["team"] is None and "company.view" in me["rights"]
+        company = http.get("/api/company", params={"actor": CTO}).json()["teams"]
+        assert [t["key"] for t in company] == ["PAY", "LED", "KYC", "MOB", "PLT"]
+        pay = company[0]
+        assert pay["manager"]["id"] == MANAGER and pay["findings"] == {"assigned_while_absent": 1} and pay["away"] == 1
+        assert http.get("/api/company", params={"actor": MANAGER}).status_code == 403  # a manager's view ends at the team
+
+        seen = http.get("/api/overview", params={"actor": CTO, "team": "KYC"}).json()  # any team, read only
+        assert seen["team"] == "KYC" and len(seen["loads"]) == 8 and "issues.assign" not in seen["rights"]
+        assert http.get("/api/overview", params={"actor": MANAGER, "team": "KYC"}).status_code == 403
+        key = seen["loads"][1]["open_issues"][0]
+        moved = http.post("/api/issues/move", json={"actor": CTO, "issue_key": key, "status": "Done"})
+        assert moved.status_code == 403  # seeing everything is not the right to change it
+
+        grant = {"actor": CTO, "employee_id": engineer, "role": "manager"}
+        assert http.post("/api/roles/grant", json=grant).json() == {"ok": True}  # an acting manager for KYC
+        assert [p["id"] for p in http.get("/api/company", params={"actor": CTO}).json()["teams"][2]["acting"]] == [engineer]
+        assert "issues.assign" in http.get("/api/me", params={"actor": engineer}).json()["rights"]
+        assert http.post("/api/roles/grant", json={**grant, "role": "engineer"}).status_code == 403
+        assert http.post("/api/roles/revoke", json=grant).json() == {"ok": True}
+
+        everything = http.get("/api/audit", params={"actor": CTO}).json()
+        assert everything["intact"] and [e["kind"] for e in everything["entries"]][::-1] == ["direct_change", "role_granted", "role_revoked"]
+        assert http.get("/api/audit", params={"actor": CTO, "team": "PAY"}).json()["total"] == 0  # none of it was in PAY
 
 
 def test_a_plan_waiting_for_approval_survives_a_restart(tmp_path):

@@ -142,8 +142,8 @@ class AutoAssigner:
         return sorted((i for i in world.issues.values() if i.in_sprint and i.assignee_id is None and i.status != "Done"),
                       key=lambda i: (-i.story_points, i.key))
 
-    async def suggestions(self, actor_id: str) -> list[Suggestion]:
-        world = await self._box.world(actor_id)
+    async def suggestions(self, actor_id: str, team: str | None = None) -> list[Suggestion]:
+        world = await self._box.world(actor_id, team)
         out, already = [], {}
         for issue in self.unowned(world):
             s = suggest(issue, world, already, await self._area(issue))

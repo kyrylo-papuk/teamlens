@@ -4,8 +4,9 @@
   TEAMLENS_FAKE=1 python -m teamlens.web the fictional company, in memory
   TEAMLENS_A2A=1  python -m teamlens.web people data from the People agent over A2A
 
-There is no login: the page has a "working as" switch, because this is a demo of how
-different people see and may do different things. A real deployment puts SSO in front.
+There is no login: the page starts by asking who you are, because this is a demo of how
+people in different positions see and may do different things. A real deployment puts SSO
+in front, and the position comes from the HR record either way.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from mcp import Client
 from pydantic import BaseModel
 
 from teamlens import live
-from teamlens.access import RIGHTS, Access
+from teamlens.access import COMPANY_WIDE, POSITIONS, RIGHTS, Access
 from teamlens.config import Settings
 from teamlens.delivery import digest as digests
 from teamlens.delivery import direct
@@ -41,7 +42,7 @@ from teamlens.jira import FakeJira
 from teamlens.jira_cloud import JiraCloud
 from teamlens.mcp_servers import jira_server
 from teamlens.people import A2APeople, LocalPeople
-from teamlens.seed import generate
+from teamlens.seed import LEADERSHIP, TEAMS, generate
 from teamlens.similar import Finder, load_embedder
 from teamlens.tracing import Tracing
 from teamlens.triage import Triage
@@ -152,6 +153,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         async with AsyncExitStack() as stack:
             client = await stack.enter_async_context(Client(jira_server(jira)))
             app.state.team = s.jira_team_key
+            # The demo company has every team in Jira; a real site is connected one project at a time.
+            app.state.teams = list(TEAMS) if fake else [s.jira_team_key]
             app.state.demo = (jira, c.issues) if fake else None  # what a reset of the demo goes back to
             app.state.people = people
             # Everything the app writes goes to one folder. Hosts with a read-only filesystem point it at /tmp.
@@ -180,14 +183,16 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             sorter = triage or (None if model is not None else load_triage(s.anthropic_api_key))
             app.state.triage = sorter.name if sorter else None
             app.state.auto = AutoAssigner(app.state.box, app.state.audit, settings_path, sorter)
-            app.state.manager = next(p.id for p in await people.team(s.jira_team_key) if p.role == "Engineering Manager")
+            app.state.managers = {key: next(p.id for p in await people.team(key) if POSITIONS.get(p.role) == "manager")
+                                  for key in app.state.teams}
 
             async def watch(seconds: float) -> None:
                 """Auto mode also covers issues created directly in Jira: look for unowned sprint work on a timer."""
                 while True:
                     await asyncio.sleep(seconds)
                     try:
-                        await app.state.auto.sweep(app.state.team, app.state.manager)
+                        for key in app.state.teams:
+                            await sweep(key)
                     except Exception:  # the watcher must survive a bad pass
                         logging.getLogger("teamlens").exception("auto-assignment pass failed")
 
@@ -209,25 +214,69 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
     async def page() -> str:
         return PAGE.read_text(encoding="utf-8")
 
+    async def sweep(team: str) -> list:
+        return await app.state.auto.sweep(team, app.state.managers[team])
+
+    def lacking(who, right: str) -> HTTPException:
+        return HTTPException(403, f"{who.name} does not have the right to do this: {RIGHTS[right].lower()}.")
+
     @app.get("/api/people")
     async def people() -> dict:
-        """Who can be picked in the "working as" switch."""
-        team = await app.state.people.team(app.state.team)
-        return {"team": app.state.team, "source": app.state.source, "tracing": app.state.tracing.enabled,
-                "notice": s.teamlens_notice, "demo": fake,
-                "people": [{"id": p.id, "name": p.name, "role": p.role} for p in team]}
+        """Everyone who can be picked on the "who are you" screen: leadership and the members of each team,
+        each with the level their position brings."""
+        access, listed = app.state.access, list(await app.state.people.department(LEADERSHIP))
+        for key in app.state.teams:
+            listed += await app.state.people.team(key)
+        return {"team": app.state.team, "teams": {key: TEAMS.get(key, key) for key in app.state.teams},
+                "source": app.state.source, "tracing": app.state.tracing.enabled, "notice": s.teamlens_notice, "demo": fake,
+                "people": [{"id": p.id, "name": p.name, "role": p.role, "team": p.team, "level": access.base_role(p)}
+                           for p in listed if access.base_role(p)]}
+
+    @app.get("/api/me")
+    async def me(actor: str) -> dict:
+        """What the page needs to decide which screens this person gets."""
+        p, access = await person(actor), app.state.access
+        return {"id": p.id, "name": p.name, "position": p.role, "team": p.team, "level": access.base_role(p),
+                "granted": access.granted(p, p.team) if p.team else [], "rights": sorted(access.rights(p))}
+
+    @app.get("/api/company")
+    async def company(actor: str) -> dict:
+        """One line per team, for people who may see all of them."""
+        viewer, access = await person(actor), app.state.access
+        if "company.view" not in access.rights(viewer):
+            raise lacking(viewer, "company.view")
+        teams = []
+        for key in app.state.teams:
+            world = await guarded(app.state.box.world(actor, key))
+            f, here = app.state.box.forecast(world), [x for x in world.overview.loads if x.availability.active]
+            kinds: dict[str, int] = {}
+            for finding in world.overview.findings:
+                kinds[finding.kind] = kinds.get(finding.kind, 0) + 1
+            teams.append({
+                "key": key, "name": TEAMS.get(key, key), **managers(world),
+                "people": len(here), "away": sum(not x.availability.available_today for x in here),
+                "points": sum(x.sprint_points for x in here), "capacity": round(sum(x.capacity_points for x in here), 1),
+                "forecast": {"committed": f.committed, "done": f.done, "expected": f.expected, "at_risk": f.at_risk},
+                "findings": kinds, "unowned": len(app.state.auto.unowned(world)),
+            })
+        return {"teams": teams}
+
+    def managers(world) -> dict:
+        """Who runs the team: the manager named in the HR record, and anyone leadership made an acting manager."""
+        acting = set(app.state.access.holders("manager", world.team or ""))
+        people = [{"id": x.employee_id, "name": x.name, "role": x.role} for x in world.overview.loads if x.availability.active]
+        return {"manager": next((p for p in people if POSITIONS.get(p["role"]) == "manager"), None),
+                "acting": [p for p in people if p["id"] in acting]}
 
     @app.get("/api/overview")
-    async def overview(actor: str) -> dict:
-        try:
-            world = await app.state.box.world(actor)
-        except ToolFailure as exc:
-            raise HTTPException(503, str(exc)) from exc
+    async def overview(actor: str, team: str | None = None) -> dict:
+        world = await guarded(app.state.box.world(actor, team))
         names = {x.employee_id: x.name for x in world.overview.loads}
         issues = {k: {"summary": i.summary, "status": i.status, "points": i.story_points, "in_sprint": i.in_sprint}
                   for k, i in world.issues.items()}
         backlog = [k for k, i in world.issues.items() if i.assignee_id is None and i.status != "Done" and not i.in_sprint]
         return {"today": str(world.overview.today), "actor": world.actor.model_dump(), "rights": sorted(world.rights),
+                "team": world.team, "team_name": TEAMS.get(world.team, world.team), **managers(world),
                 "loads": [x.model_dump(mode="json") for x in world.overview.loads],
                 "findings": [{**f.model_dump(), "name": names.get(f.employee_id)} for f in world.overview.findings],
                 "issues": issues, "backlog": backlog, "forecast": app.state.box.forecast(world).model_dump()}
@@ -283,9 +332,9 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             raise HTTPException(503, str(exc)) from exc
 
     @app.get("/api/autoassign")
-    async def autoassign(actor: str) -> dict:
-        auto, world = app.state.auto, await guarded(app.state.box.world(actor))
-        setting = auto.setting(app.state.team)
+    async def autoassign(actor: str, team: str | None = None) -> dict:
+        auto, world = app.state.auto, await guarded(app.state.box.world(actor, team))
+        setting = auto.setting(world.team or "")
         names = {x.employee_id: x.name for x in world.overview.loads}
         recent = [{"issue_key": e["data"]["issue"], "assignee_name": names.get(e["data"]["assignee"]),
                    "by_system": e["actor"] == "autoassign", "reason": e["data"]["reason"]}
@@ -295,12 +344,12 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         return {"mode": setting["mode"], "set_by": names.get(setting["set_by"]),
                 "triage": app.state.triage, "can_configure": "autoassign.configure" in world.rights,
                 "can_create": "issues.create" in world.rights,
-                "suggestions": [s.model_dump() for s in await auto.suggestions(actor)], "recent": recent}
+                "suggestions": [s.model_dump() for s in await auto.suggestions(actor, team)], "recent": recent}
 
     @app.post("/api/autoassign/mode")
     async def set_mode(body: SetMode) -> dict:
         setting = await guarded(app.state.auto.set_mode(body.actor, body.mode))
-        applied = await app.state.auto.sweep(app.state.team, app.state.manager)
+        applied = await sweep((await person(body.actor)).team)
         return {"mode": setting["mode"], "applied": [a.model_dump() for a in applied]}
 
     @app.post("/api/autoassign/assign")
@@ -327,7 +376,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         issue = await guarded(app.state.box.create_in_sprint(world.actor.team, body.summary.strip(),
                                                              max(0, min(body.points, 13))))
         app.state.audit.record("issue_created", body.actor, "-", issue=issue.key, summary=issue.summary)
-        applied = await app.state.auto.sweep(app.state.team, app.state.manager)
+        applied = await sweep(world.actor.team)
         return {"issue_key": issue.key, "applied": [a.model_dump() for a in applied]}
 
     # --- changes made with a button: one step, the same rules and log as a plan, no model -----
@@ -374,7 +423,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         return {
             "team": team, "catalogue": RIGHTS, "mine": sorted(mine), "can_manage": manages,
             "roles": [{**r.model_dump(), "can_give": "roles.grant" in mine and set(r.rights) <= mine}
-                      for r in access.roles(team) if r.name != "admin"] if manages else [],
+                      for r in access.roles(team) if r.name not in COMPANY_WIDE] if manages else [],
             "members": [{"id": p.id, "name": p.name, "base": access.base_role(p), "granted": access.granted(p, team),
                          "rights": sorted(access.rights(p, team))} for p in members if p.active],
         }
@@ -414,16 +463,18 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         return {"ok": True}
 
     @app.get("/api/audit")
-    async def audit(actor: str, limit: int = 30) -> dict:
-        """The log of the actor's team, for people with the right to see it. The chain is checked over the whole log."""
-        me = await person(actor)
-        team = me.team or app.state.team
-        if "audit.view" not in app.state.access.rights(me, team):
-            raise HTTPException(403, f"{me.name} does not have the right to do this: {RIGHTS['audit.view'].lower()}.")
-        members = {p.id for p in await app.state.people.team(team)}
+    async def audit(actor: str, team: str | None = None, limit: int = 30) -> dict:
+        """One team's part of the log, or all of it for people who see every team. The chain is checked over the whole log."""
+        viewer = await person(actor)
+        team = team or viewer.team
+        if "audit.view" not in app.state.access.rights(viewer, team):
+            raise lacking(viewer, "audit.view")
         log = app.state.audit
-        entries = [e for e in log.entries() if e["actor"] in members or e["data"].get("on_behalf_of") in members
-                   or e["data"].get("team") == team]
+        entries = log.entries()
+        if team:
+            members = {p.id for p in await app.state.people.team(team)}
+            entries = [e for e in entries if e["actor"] in members or e["data"].get("on_behalf_of") in members
+                       or e["data"].get("team") == team]
         return {"intact": log.verify() is None, "total": len(entries), "entries": entries[-limit:][::-1]}
 
     return app

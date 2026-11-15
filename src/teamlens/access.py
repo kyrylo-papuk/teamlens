@@ -10,11 +10,18 @@ Model:
   grant    a role given to a person in a team, on record with who gave it and when
 
 A person's rights in a team are the union of their roles there. Everyone starts with the role
-their HR record implies (engineer, or manager of their team); grants only add to that.
+their position in the HR record brings (see POSITIONS); grants only add to that. A new position
+in the company is one more line in that table.
+
+Leadership holds the ``executive`` role in every team: it sees all of them and decides who
+manages them, and it has no right to touch a single issue. A higher position widens what a
+person sees; it does not add the rights of the people below.
 
 Two rules stop rights from spreading by themselves:
   - nobody can give out, or build a role from, a right they do not hold
   - roles are given and taken only inside the giver's own team (administrators excepted)
+The one stated exception: a person with ``managers.appoint`` can make a team member an acting
+manager, and take that back, without holding a manager's rights themselves.
 """
 
 from __future__ import annotations
@@ -39,11 +46,23 @@ RIGHTS = {
     "roles.grant": "Give and take away roles in the team",
     "roles.define": "Create and delete the team's own roles",
     "audit.view": "See the team's audit log",
+    "company.view": "See the work and load of every team",
+    "managers.appoint": "Appoint and remove acting managers of teams",
 }
+COMPANY_RIGHTS = {"company.view", "managers.appoint"}  # they reach across teams
 BUILT_IN = {
     "admin": set(RIGHTS),
-    "manager": set(RIGHTS),
+    "executive": {"company.view", "managers.appoint", "overview.view", "audit.view"},
+    "manager": set(RIGHTS) - COMPANY_RIGHTS,
     "engineer": {"overview.view", "issues.take", "issues.move_own", "issues.create"},
+}
+COMPANY_WIDE = {"admin", "executive"}  # roles that hold in every team; a position or the configuration brings them
+# The role a position brings. A member of a team whose position is not listed is an engineer.
+POSITIONS = {
+    "Chief Executive Officer": "executive",
+    "Chief Technology Officer": "executive",
+    "Chief Operating Officer": "executive",
+    "Engineering Manager": "manager",
 }
 NAME = re.compile(r"^[a-z][a-z0-9-]{1,30}$")
 
@@ -87,22 +106,32 @@ class Access:
     def base_role(self, person: Person) -> str | None:
         if person.id in self._admins:
             return "admin"
-        if not person.team or not person.active:
+        if not person.active:
             return None
-        return "manager" if person.role == "Engineering Manager" else "engineer"
+        role = POSITIONS.get(person.role)
+        if role in COMPANY_WIDE:
+            return role
+        return (role or "engineer") if person.team else None
 
     def granted(self, person: Person, team: str) -> list[str]:
         return [g.role for g in self._grants if g.employee_id == person.id and g.team == team]
+
+    def holders(self, role: str, team: str) -> list[str]:
+        """Ids of the people who were given ``role`` in ``team``."""
+        return [g.employee_id for g in self._grants if g.team == team and g.role == role]
 
     def rights(self, person: Person, team: str | None = None) -> set[str]:
         """Rights of ``person`` in ``team`` (their own team by default)."""
         team = team or person.team
         if person.id in self._admins:
             return set(RIGHTS)
-        if not team or not person.active:
+        if not person.active:
             return set()
-        held = self.granted(person, team) + ([self.base_role(person)] if team == person.team else [])
-        return {right for name in held if name and (role := self._role(name, team)) for right in role.rights}
+        base = self.base_role(person)
+        held = self.granted(person, team) if team else []
+        if base in COMPANY_WIDE or (team and team == person.team):
+            held = [*held, base]
+        return {right for name in held if name and (role := self._role(name, team or "")) for right in role.rights}
 
     # --- changing ---------------------------------------------------------------------------
 
@@ -124,14 +153,19 @@ class Access:
         team = target.team
         if not team or not target.active:
             raise ValueError(f"{target.name} is not an active member of a team.")
-        mine = self._need(actor, "roles.grant", team)
+        mine = self.rights(actor, team)
+        appointing = role_name == "manager" and "managers.appoint" in mine  # leadership naming an acting manager
+        if not appointing:
+            self._need(actor, "roles.grant", team)
         role = self._role(role_name, team)
         if role is None:
             raise ValueError(f"Team {team} has no role '{role_name}'.")
         if role.name == "admin":
             raise PermissionError("Administrators are set in configuration, not given as a role.")
+        if role.name in COMPANY_WIDE:
+            raise PermissionError(f"The role '{role.name}' comes with a position in the HR record; it is not given here.")
         beyond = sorted(set(role.rights) - mine)
-        if beyond:
+        if beyond and not appointing:
             raise PermissionError(f"You cannot give a role with rights you do not hold yourself: {', '.join(beyond)}.")
         if role_name in self.granted(target, team) or (team == target.team and role_name == self.base_role(target)):
             raise ValueError(f"{target.name} already has the role '{role_name}'.")
@@ -141,7 +175,8 @@ class Access:
 
     def revoke(self, actor: Person, target: Person, role_name: str) -> None:
         team = target.team or ""
-        self._need(actor, "roles.grant", team)
+        if not (role_name == "manager" and "managers.appoint" in self.rights(actor, team)):
+            self._need(actor, "roles.grant", team)
         mine = [g for g in self._grants if g.employee_id == target.id and g.team == team and g.role == role_name]
         if not mine:
             raise ValueError(f"{target.name} was not given the role '{role_name}'. A role that comes from the "

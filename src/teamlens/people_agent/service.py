@@ -61,6 +61,11 @@ class TeamRequest(BaseModel):
     team: str
 
 
+class DepartmentRequest(BaseModel):
+    skill: Literal["department"]
+    department: str
+
+
 class AvailabilityRequest(BaseModel):
     skill: Literal["availability"]
     employee_ids: list[str]
@@ -68,7 +73,7 @@ class AvailabilityRequest(BaseModel):
     end: date
 
 
-Request = TypeAdapter(PersonRequest | TeamRequest | AvailabilityRequest)
+Request = TypeAdapter(PersonRequest | TeamRequest | DepartmentRequest | AvailabilityRequest)
 Advisor = Callable[[str], Awaitable[str]]
 
 
@@ -87,7 +92,8 @@ def agent_card(url: str) -> AgentCard:
         skills=[
             AgentSkill(id="directory", name="Employee directory", input_modes=[JSON], output_modes=[JSON],
                        tags=["hr", "directory"],
-                       description='Data part {"skill": "person", "employee_id"} or {"skill": "team", "team"}. '
+                       description='Data part {"skill": "person", "employee_id"}, {"skill": "team", "team"} or '
+                                   '{"skill": "department", "department"}. '
                                    "Returns id, name, department, team, role, manager, weekly hours, active."),
             AgentSkill(id="availability", name="Availability", input_modes=[JSON], output_modes=[JSON],
                        tags=["hr", "availability"],
@@ -131,6 +137,8 @@ class PeopleExecutor(AgentExecutor):
             return {"error": f"Unknown or malformed request: {exc.errors()[0]['msg']}"}
         if isinstance(request, TeamRequest):
             return {"people": [p.model_dump(mode="json") for p in self._hrm.people(request.team)]}
+        if isinstance(request, DepartmentRequest):
+            return {"people": [p.model_dump(mode="json") for p in self._hrm.people(department=request.department)]}
         known = {p.id: p for p in self._hrm.people()}
         if isinstance(request, PersonRequest):
             person = known.get(request.employee_id)

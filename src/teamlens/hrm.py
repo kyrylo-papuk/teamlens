@@ -44,11 +44,12 @@ class Hrm:
         self._employees = {e.id: e for e in employees}
         self._absences = absences
 
-    def people(self, team: str | None = None) -> list[Person]:
+    def people(self, team: str | None = None, department: str | None = None) -> list[Person]:
         return [
             Person(id=e.id, name=e.name, department=e.department, team=e.team, role=e.role,
                    manager_id=e.manager_id, weekly_hours=e.weekly_hours, active=e.status == "active")
-            for e in self._employees.values() if team is None or e.team == team
+            for e in self._employees.values()
+            if (team is None or e.team == team) and (department is None or e.department == department)
         ]
 
     def availability(self, employee_id: str, start: date, end: date, today: date) -> Availability:

@@ -54,7 +54,8 @@ class Verdict(BaseModel):
 class World(BaseModel):
     """What the policy knows at one moment: who asks, the team's load, the team's issues."""
     actor: Person
-    rights: set[str] = set()  # what the actor may do in their team, from teamlens.access
+    team: str | None = None  # the team this is the state of: the actor's own, or one they may look at
+    rights: set[str] = set()  # what the actor may do in that team, from teamlens.access
     overview: Overview
     issues: dict[str, Issue]
 

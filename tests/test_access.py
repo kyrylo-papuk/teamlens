@@ -12,6 +12,7 @@ MANAGER, DANA, VIKTOR = PAY[0], PAY[3], PAY[4]
 OTHER_MANAGER = next(p for p in PEOPLE.values() if p.team == "KYC" and p.role == "Engineering Manager")
 OUTSIDER = next(p for p in PEOPLE.values() if p.team == "KYC" and p.role != "Engineering Manager")
 LEFT = next(p for p in PEOPLE.values() if not p.active)
+CTO = next(p for p in PEOPLE.values() if p.role == "Chief Technology Officer")
 
 
 def access(tmp_path, **kw) -> Access:
@@ -20,7 +21,7 @@ def access(tmp_path, **kw) -> Access:
 
 def test_everyone_starts_with_the_role_their_hr_record_implies(tmp_path):
     a = access(tmp_path)
-    assert a.base_role(MANAGER) == "manager" and a.rights(MANAGER) == set(RIGHTS)
+    assert a.base_role(MANAGER) == "manager" and a.rights(MANAGER) == BUILT_IN["manager"]
     assert a.base_role(DANA) == "engineer" and a.rights(DANA) == BUILT_IN["engineer"]
     assert a.rights(DANA, "KYC") == set()  # rights are per team
     assert a.rights(LEFT) == set()  # someone who left has none
@@ -98,6 +99,28 @@ def test_deleting_a_role_takes_it_from_everyone(tmp_path):
     a.grant(MANAGER, DANA, "tech-lead")
     a.delete(MANAGER, "tech-lead")
     assert a.rights(DANA) == BUILT_IN["engineer"] and [r.name for r in a.roles("PAY")] == list(BUILT_IN)
+
+
+def test_leadership_sees_every_team_and_appoints_managers_but_changes_no_issue(tmp_path):
+    a = access(tmp_path)
+    assert a.base_role(CTO) == "executive" and a.rights(CTO) == a.rights(CTO, "KYC") == BUILT_IN["executive"]
+    assert not BUILT_IN["executive"] & {"issues.assign", "issues.move_any", "issues.take", "roles.grant", "roles.define"}
+    assert not BUILT_IN["manager"] & {"company.view", "managers.appoint"}  # a manager's reach ends at the team
+
+    a.grant(CTO, OUTSIDER, "manager")  # an acting manager for KYC, without the CTO holding a manager's rights
+    assert a.rights(OUTSIDER) == BUILT_IN["manager"] and a.granted(OUTSIDER, "KYC") == ["manager"]
+    with pytest.raises(PermissionError, match="do not have the right"):
+        a.grant(CTO, OUTSIDER, "engineer")  # appointing managers is all leadership may do with roles
+    with pytest.raises(PermissionError, match="do not have the right"):
+        a.define(CTO, "anything", ["overview.view"])
+    with pytest.raises(PermissionError, match="comes with a position"):
+        a.grant(OTHER_MANAGER, OUTSIDER, "executive")
+    with pytest.raises(ValueError, match="HR record"):
+        a.revoke(CTO, OTHER_MANAGER, "manager")  # the manager named in the HR record stays; HR decides that
+    a.revoke(CTO, OUTSIDER, "manager")
+    assert a.rights(OUTSIDER) == BUILT_IN["engineer"]
+    kinds = [e["kind"] for e in AuditLog(tmp_path / "audit.jsonl").entries()]
+    assert kinds == ["role_granted", "role_revoked"]
 
 
 def test_administrator_has_every_right_everywhere(tmp_path):

@@ -10,22 +10,25 @@ from datetime import date
 from typing import Protocol
 
 from teamlens.hrm import Availability, Hrm, Person
+from teamlens.seed import LEADERSHIP
 
 
 class People(Protocol):
     async def person(self, employee_id: str) -> Person | None: ...
     async def team(self, team: str) -> list[Person]: ...
+    async def department(self, department: str) -> list[Person]: ...
     async def availability(self, employee_ids: list[str]) -> dict[str, Availability]: ...
 
 
 class LocalPeople:
     def __init__(self, hrm: Hrm, today: date, period_start: date, period_end: date,
                  only: set[str] | None = None) -> None:
-        """``only`` limits the directory to these employee ids (people with a Jira account)."""
+        """``only`` limits the directory to these employee ids (people with a Jira account).
+        Leadership is always in it: they look at teams, they do not need an account to hold issues."""
         self._hrm, self._today, self._start, self._end, self._only = hrm, today, period_start, period_end, only
 
     def _visible(self, people: list[Person]) -> list[Person]:
-        return [p for p in people if self._only is None or p.id in self._only]
+        return _visible(people, self._only)
 
     async def person(self, employee_id: str) -> Person | None:
         return next((p for p in self._visible(self._hrm.people()) if p.id == employee_id), None)
@@ -33,8 +36,15 @@ class LocalPeople:
     async def team(self, team: str) -> list[Person]:
         return self._visible(self._hrm.people(team))
 
+    async def department(self, department: str) -> list[Person]:
+        return self._visible(self._hrm.people(department=department))
+
     async def availability(self, employee_ids: list[str]) -> dict[str, Availability]:
         return {e: self._hrm.availability(e, self._start, self._end, self._today) for e in employee_ids}
+
+
+def _visible(people: list[Person], only: set[str] | None) -> list[Person]:
+    return [p for p in people if only is None or p.id in only or p.department == LEADERSHIP]
 
 
 class PeopleAgentError(Exception):
@@ -73,7 +83,7 @@ class A2APeople:
         return data[0]
 
     def _visible(self, people: list[Person]) -> list[Person]:
-        return [p for p in people if self._only is None or p.id in self._only]
+        return _visible(people, self._only)
 
     async def person(self, employee_id: str) -> Person | None:
         raw = (await self._lookup(skill="person", employee_id=employee_id))["person"]
@@ -82,6 +92,10 @@ class A2APeople:
 
     async def team(self, team: str) -> list[Person]:
         return self._visible([Person(**p) for p in (await self._lookup(skill="team", team=team))["people"]])
+
+    async def department(self, department: str) -> list[Person]:
+        found = await self._lookup(skill="department", department=department)
+        return self._visible([Person(**p) for p in found["people"]])
 
     async def availability(self, employee_ids: list[str]) -> dict[str, Availability]:
         raw = await self._lookup(skill="availability", employee_ids=employee_ids,
