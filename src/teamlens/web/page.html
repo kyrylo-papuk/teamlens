@@ -19,6 +19,7 @@
            border-bottom: 1px solid var(--line); flex-wrap: wrap; }
   header h1 { margin: 0; font-size: 18px; letter-spacing: .2px; }
   header .src { color: var(--muted); font-size: 12px; }
+  header #reset { font-size: 12px; padding: 4px 10px; color: var(--muted); }
   header .who { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--muted); }
   select, textarea, button { font: inherit; color: var(--ink); }
   select { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
@@ -101,6 +102,7 @@
   <h1>TeamLens</h1>
   <span class="src" id="src"></span>
   <label class="who">Working as <select id="actor"></select></label>
+  <button id="reset" hidden title="Put the fictional company back to its starting state">Reset demo data</button>
 </header>
 <div id="notice" hidden></div>
 <main>
@@ -350,6 +352,10 @@ const decide = approved => run(() => api("/api/decide", {actor: $("actor").value
   const p = await api("/api/people");
   $("src").textContent = `team ${p.team} · ${p.source}`;
   if (p.notice) { $("notice").textContent = p.notice; $("notice").hidden = false; }
+  if (p.demo) {
+    $("reset").hidden = false;
+    $("reset").onclick = async () => { await api("/api/demo/reset", {}); $("result").innerHTML = ""; $("newinfo").textContent = ""; refresh(); };
+  }
   $("actor").innerHTML = p.people.map(x => `<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.role)}</option>`).join("");
   $("examples").innerHTML = EXAMPLES.map(t => `<button>${esc(t)}</button>`).join("");
   $("examples").onclick = e => { if (e.target.tagName === "BUTTON") $("text").value = e.target.textContent; };

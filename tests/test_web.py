@@ -135,3 +135,24 @@ def test_public_demo_caps_requests_that_reach_the_model(tmp_path):
         assert http.post("/api/digest", json={"actor": MANAGER}).status_code == 429
         assert http.get("/api/overview", params={"actor": MANAGER}).status_code == 200  # plain code is not capped
         assert http.get("/api/people").json()["notice"] == ""
+
+
+def test_demo_reset_puts_the_company_back(tmp_path):
+    step = {"tool": "assign_issue", "issue_key": ISSUE, "assignee_id": FREE, "status": None, "summary": None, "reason": "cover"}
+    with client(tmp_path, call("propose_plan", _id="p1", summary="Cover", steps=[step])) as http:
+        assert http.get("/api/people").json()["demo"] is True
+        waiting = http.post("/api/ask", json={"actor": MANAGER, "text": "Cover for Anton"}).json()
+        http.post("/api/decide", json={"actor": MANAGER, "thread": waiting["thread"], "approved": True})
+        http.post("/api/roles/define", json={"actor": MANAGER, "name": "tech-lead", "rights": ["issues.assign"]})
+        http.post("/api/autoassign/mode", json={"actor": MANAGER, "mode": "auto"})
+        changed = http.get("/api/overview", params={"actor": MANAGER}).json()
+        assert ISSUE not in next(x for x in changed["loads"] if x["employee_id"] == AWAY)["open_issues"]
+        assert http.get("/api/audit").json()["total"] > 0
+
+        assert http.post("/api/demo/reset", json={}).json() == {"ok": True}
+        fresh = http.get("/api/overview", params={"actor": MANAGER}).json()
+        assert [f["kind"] for f in fresh["findings"]] == ["assigned_while_absent"]
+        assert ISSUE in next(x for x in fresh["loads"] if x["employee_id"] == AWAY)["open_issues"]
+        assert http.get("/api/audit").json()["total"] == 0
+        assert [r["name"] for r in http.get("/api/roles", params={"actor": MANAGER}).json()["roles"]] == ["manager", "engineer"]
+        assert http.get("/api/autoassign", params={"actor": MANAGER}).json()["mode"] == "suggest"

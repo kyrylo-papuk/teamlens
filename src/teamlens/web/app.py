@@ -139,9 +139,11 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         async with AsyncExitStack() as stack:
             client = await stack.enter_async_context(Client(jira_server(jira)))
             app.state.team = s.jira_team_key
+            app.state.demo = (jira, c.issues) if fake else None  # what a reset of the demo goes back to
             app.state.people = people
             # Everything the app writes goes to one folder. Hosts with a read-only filesystem point it at /tmp.
             data = audit_path.parent if audit_path else Path(os.environ.get("TEAMLENS_DATA_DIR", "data"))
+            app.state.data = data
             app.state.audit = AuditLog(audit_path or data / "audit.jsonl")
             app.state.access = Access(data / "access.json", audit=app.state.audit)
             # A scripted model means a test: skip loading the embedding model and search by words.
@@ -199,7 +201,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         """Who can be picked in the "working as" switch."""
         team = await app.state.people.team(app.state.team)
         return {"team": app.state.team, "source": app.state.source, "tracing": app.state.tracing.enabled,
-                "notice": s.teamlens_notice,
+                "notice": s.teamlens_notice, "demo": fake,
                 "people": [{"id": p.id, "name": p.name, "role": p.role} for p in team]}
 
     @app.get("/api/overview")
@@ -362,6 +364,20 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
     async def delete_role(body: RoleDefine) -> dict:
         me = await person(body.actor)
         return await change_roles(lambda: app.state.access.delete(me, body.name))
+
+    @app.post("/api/demo/reset")
+    async def reset_demo() -> dict:
+        """Put the fictional company back to its starting state. A shared demo needs this: one visitor's approved
+        plan would otherwise be what the next visitor finds. The route does not exist when the data is real."""
+        if app.state.demo is None:
+            raise HTTPException(404, "This deployment does not run on demo data.")
+        jira, issues = app.state.demo
+        jira.reset(issues)
+        for name in ("audit.jsonl", "access.json", "team_settings.json"):
+            (app.state.data / name).unlink(missing_ok=True)
+        app.state.access = Access(app.state.data / "access.json", audit=app.state.audit)
+        app.state.box.access = app.state.access
+        return {"ok": True}
 
     @app.get("/api/audit")
     async def audit(limit: int = 30) -> dict:

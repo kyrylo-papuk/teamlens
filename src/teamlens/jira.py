@@ -30,9 +30,14 @@ class Jira(Protocol):
 
 class FakeJira:
     def __init__(self, issues: list[Issue], today: date) -> None:
-        self._issues = {i.key: i.model_copy() for i in issues}
         self._today = today
         self.comments: dict[str, list[str]] = {}
+        self.reset(issues)
+
+    def reset(self, issues: list[Issue]) -> None:
+        """Back to a given set of issues, with no comments."""
+        self._issues = {i.key: i.model_copy() for i in issues}
+        self.comments.clear()
 
     async def search(self, project=None, assignee_id=None, status=None, sprint_only=False) -> list[Issue]:
         return [

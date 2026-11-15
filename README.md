@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/kyrylo-papuk/teamlens/actions/workflows/ci.yml/badge.svg)](https://github.com/kyrylo-papuk/teamlens/actions/workflows/ci.yml)
 
+**Live demo: https://teamlens-omega.vercel.app** (a fictional company, shared between visitors; *Reset demo data* in the header puts it back to the start)
+
 An agentic assistant for an engineering team's delivery. It joins **Jira** with the **HR system** to show who
 is working on what and where a sprint is at risk, and it makes changes in Jira for the people who are allowed
 to make them. The language model proposes; plain code checks every proposal against company rules, a person
@@ -193,7 +195,7 @@ to the host. Without a model key everything that is plain code works and the age
 ```bash
 python -m venv .venv && .venv/Scripts/activate        # or: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                             # 83 tests, no keys, no network
+pytest -q                                             # 84 tests, no keys, no network
 TEAMLENS_FAKE=1 python -m teamlens.web                # the page on the fictional company
 ```
 
