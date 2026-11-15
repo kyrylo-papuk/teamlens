@@ -35,6 +35,8 @@ was measured.
 - **A screen per position.** A position in the HR record brings a role, and the role decides which screens a
   person gets. An engineer sees their own work and what they can take. A manager sees the team, its history and
   its roles. Leadership sees every team on one screen and can name an acting manager.
+- **Teams and people.** Leadership creates a team and names its manager; the manager and leadership add people
+  to it and remove them. Nobody leaves a team while issues are still in their name.
 - **Buttons under the same rules.** Taking, handing over or moving an issue does not need the model. A button
   sends one step through the same policy, the same code and the same audit log as the agent's plans.
 
@@ -50,8 +52,9 @@ was measured.
 
 | Position | Role it brings | Screens | May change |
 |---|---|---|---|
-| CEO, CTO, COO | `executive` | Company, any team (view only), History of all teams | who is an acting manager of a team; no issue |
-| Engineering Manager | `manager` | Team, History, Roles | any issue of the team, automatic assignment, the team's roles |
+| CEO | `chief-executive` | Company, any team, History by team | what leadership may, and who else has leadership access |
+| CTO, COO | `executive` | Company, any team (issues: view only), History by team | create a team, name its acting manager, add and remove its people; no issue |
+| Engineering Manager | `manager` | Team, History, Roles | any issue of the team, automatic assignment, the team's roles and people |
 | any other member of a team | `engineer` | My work, Team (view only) | their own issues; work nobody owns |
 
 The table of positions is one dictionary in `access.py`; a new position is one more line. A higher position
@@ -216,7 +219,7 @@ to the host. Without a model key everything that is plain code works and the age
 ```bash
 python -m venv .venv && .venv/Scripts/activate        # or: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                             # 90 tests, no keys, no network
+pytest -q                                             # 101 tests, no keys, no network
 TEAMLENS_FAKE=1 python -m teamlens.web                # the page on the fictional company
 ```
 
@@ -264,13 +267,14 @@ src/teamlens/
     model.py         Claude behind one interface; a scripted model for tests
   people_agent/    the People agent: A2A service, Microsoft Agent Framework
   access.py        rights, roles, grants, and the role each position brings
+  staffing.py      who is in which team, and creating a team
   hrm.py           the only module that reads restricted HR fields
   jira.py, jira_cloud.py, mcp_servers.py     Jira behind one interface, in memory or Cloud, exposed over MCP
   overview.py      who works on what, problems found
   forecast.py, similar.py, triage/           the three measured features
   tracing.py       Langfuse, with names replaced by employee ids before export
   evals/           scenarios, runner, judge
-  web/             FastAPI app and one HTML page without a build step
+  web/             FastAPI app, one HTML page without a build step, shared state for the public demo
 docs/DATA.md       data classes, where each rule is enforced, what is not built
 evals/results/     published results, including the first run that turned out wrong
 ```
@@ -283,14 +287,15 @@ Stated plainly, so nobody has to find it:
   configured, limited to one team because the free plan allows ten accounts.
 - **There is no login.** The page starts by asking who you are, to show how people in different positions see
   and may do different things. A deployment needs SSO in front of it.
-- **It does not edit the organisation.** Who is in which team and who holds which position comes from the HR
-  system and is only read here. Leadership can name an acting manager; that is a role in TeamLens, not a change
-  to an HR record.
+- **Positions belong to HR.** TeamLens can create a team, move a person into a team or out of it, and give or
+  take leadership access, all by plain code and all in the audit log. It does not hire, dismiss or change a
+  position. In the demo the HR system is part of the app; behind the People agent it is read-only and these
+  buttons are refused.
 - **Storage is local.** The audit log is a file and paused conversations are in SQLite. Production needs a
   database with encryption at rest, retention periods and erasure on request.
-- **The public demo keeps the company in memory.** Its host can start a second instance with its own copy, so
-  two people using it at the same moment may see different states. The page sends one request at a time to stay
-  on one instance; the real fix is the database above.
+- **The public demo keeps the company in memory.** Its host runs several instances, so they share one copy
+  through Redis: the whole state as one document, saved under a lock (`web/shared.py`). That makes a demo
+  consistent. It is not the database above.
 - **Tokens between the agents are static.** The agent card already declares bearer authentication; production
   needs short-lived tokens issued per agent.
 - **The People agent does not yet check who a caller acts for.** Any caller with the read scope can read any
