@@ -591,7 +591,11 @@ async function roleAction(path, body) {
 
 async function change(path, body, where) {
   try { await api(path, {actor: S.me.id, ...body}); }
-  catch (e) { if (where) where.textContent = e.message; else flash(e.message); return false; }
+  catch (e) {
+    await refresh();  // a refusal often means the picture on screen is out of date: show what is true now
+    if (where) where.textContent = e.message; else flash(e.message);
+    return false;
+  }
   flash(""); await refresh(); return true;
 }
 const move = (key, status, where) => change("/api/issues/move", {issue_key: key, status}, where);

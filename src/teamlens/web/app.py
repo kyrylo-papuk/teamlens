@@ -47,6 +47,7 @@ from teamlens.similar import Finder, load_embedder
 from teamlens.tracing import Tracing
 from teamlens.triage import Triage
 from teamlens.triage import load as load_triage
+from teamlens.web.shared import Shared, StoreDown, Threads, restore, snapshot
 
 PAGE = Path(__file__).with_name("page.html")
 
@@ -111,27 +112,31 @@ class RoleDefine(BaseModel):
     rights: list[str] = []
 
 
+SPENT = ("This demo has used its model allowance for today. Everything that does not need the model still works; "
+         "the allowance resets at midnight UTC.")
+
+
 class DailyBudget:
     """Counts the requests that reach the model and refuses once the day's allowance is used."""
 
     def __init__(self, allowance: int) -> None:
-        self._allowance, self._day, self._used = allowance, "", 0
+        self.allowance, self._day, self._used = allowance, "", 0
 
     def spend(self) -> None:
         today = datetime.now(UTC).date().isoformat()
         if today != self._day:
             self._day, self._used = today, 0
-        if self._allowance and self._used >= self._allowance:
-            raise HTTPException(429, "This demo has used its model allowance for today. Everything that does not "
-                                     "need the model still works; the allowance resets at midnight UTC.")
+        if self.allowance and self._used >= self.allowance:
+            raise HTTPException(429, SPENT)
         self._used += 1
 
 
 def create_app(model: Model | None = None, fake: bool | None = None, audit_path: Path | None = None,
-               triage: Triage | None = None, state_path: Path | None = None, daily_model_requests: int | None = None
-               ) -> FastAPI:
+               triage: Triage | None = None, state_path: Path | None = None, daily_model_requests: int | None = None,
+               shared: Shared | None = None) -> FastAPI:
     """Passing a scripted ``model`` marks a test: no embedding model, no tracing, and conversation state in
-    memory unless ``state_path`` is given."""
+    memory unless ``state_path`` is given. ``shared`` makes this instance one of several that keep one copy
+    of the demo company; outside tests it comes from the environment."""
     s = Settings()
     fake = os.environ.get("TEAMLENS_FAKE") == "1" if fake is None else fake
 
@@ -169,9 +174,13 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             app.state.tracing = tracing
             app.state.box = Toolbox(client, people, c.today, app.state.access, finder, tracing, app.state.teams)
             app.state.model = model or ClaudeModel(api_key=s.anthropic_api_key, tracing=tracing)
+            # Several instances of the public demo keep one copy of the company through Redis: see web/shared.py.
+            url, token = s.kv_rest_api_url or s.upstash_redis_rest_url, s.kv_rest_api_token or s.upstash_redis_rest_token
+            app.state.shared = shared or (Shared(url, token) if fake and model is None and url and token else None)
+            app.state.threads = Threads() if app.state.shared else None  # paused conversations travel with the rest
             # A real run keeps paused conversations in SQLite, so a plan waiting for approval survives a restart.
-            saved, checkpointer = state_path or (None if model is not None else data / "state.sqlite"), None
-            if saved:
+            saved, checkpointer = state_path or (None if model is not None else data / "state.sqlite"), app.state.threads
+            if saved and checkpointer is None:
                 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
                 saved.parent.mkdir(parents=True, exist_ok=True)
@@ -209,6 +218,56 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
 
     app = FastAPI(title="TeamLens", lifespan=lifespan)
     budget = DailyBudget(s.teamlens_daily_model_requests if daily_model_requests is None else daily_model_requests)
+    log = logging.getLogger("teamlens")
+
+    def put(state: dict | None) -> None:
+        """Put this instance into a saved state of the demo, or without one into the state it starts in."""
+        jira, seed = app.state.demo
+        restore(state, jira, seed, app.state.data, app.state.threads)
+        app.state.access = Access(app.state.data / "access.json", audit=app.state.audit)  # roles are held in memory
+        app.state.box.access = app.state.access
+
+    @app.middleware("http")
+    async def one_copy(request, call_next):
+        """Before a request, catch up with what other instances did; after one that may change something, save."""
+        shared = getattr(app.state, "shared", None)
+        if shared is None or not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        changing = request.method == "POST"
+        mine = await shared.lock() if changing else None
+        try:
+            try:
+                version, idle = await shared.head()
+                if idle or version != shared.version:
+                    put(None if idle else await shared.load())
+                    shared.version = version
+                    if idle:
+                        shared.forget()
+            except StoreDown:
+                log.warning("shared store unreachable; answering from this instance's memory")
+            response = await call_next(request)
+            if changing:
+                try:
+                    await shared.save(snapshot(app.state.demo[0], app.state.data, app.state.threads))
+                except StoreDown:
+                    log.warning("shared store unreachable; this change stays in this instance's memory")
+            return response
+        finally:
+            await shared.unlock(mine)
+
+    async def spend() -> None:
+        """One more request that reaches the model. Instances that share a store also share the day's count."""
+        shared = getattr(app.state, "shared", None)
+        if shared is not None and budget.allowance:
+            try:
+                used = await shared.count(f"teamlens:model:{datetime.now(UTC).date()}")
+            except StoreDown:
+                used = None
+            if used is not None:
+                if used > budget.allowance:
+                    raise HTTPException(429, SPENT)
+                return
+        budget.spend()
 
     @app.get("/", response_class=HTMLResponse)
     async def page() -> str:
@@ -229,6 +288,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             listed += await app.state.people.team(key)
         return {"team": app.state.team, "teams": {key: TEAMS.get(key, key) for key in app.state.teams},
                 "source": app.state.source, "tracing": app.state.tracing.enabled, "notice": s.teamlens_notice, "demo": fake,
+                "shared": app.state.shared is not None,
                 "people": [{"id": p.id, "name": p.name, "role": p.role, "team": p.team, "level": access.base_role(p)}
                            for p in listed if access.base_role(p)]}
 
@@ -289,7 +349,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         world = await guarded(app.state.box.world(body.actor))
         if "overview.view" not in world.rights:
             raise HTTPException(403, f"{world.actor.name} cannot see this team's work.")
-        budget.spend()
+        await spend()
         unowned = [{"issue": s.issue_key, "summary": s.summary, "points": s.points, "suggested_owner": s.assignee_name}
                    for s in await app.state.auto.suggestions(body.actor)]
         with app.state.tracing.request("digest", f"digest-{world.overview.today}", body.actor) as trace:
@@ -303,6 +363,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                 "usage": {"calls": u.calls, "tokens": u.input + u.cache_read + u.cache_write + u.output, "usd": round(u.usd, 5)}}
 
     def reply(thread: str, result) -> dict:
+        if app.state.threads is not None and result.outcome != "needs_approval":
+            app.state.threads.delete_thread(thread)  # only conversations waiting for a person travel between instances
         u = result.usage
         return {"thread": thread, "outcome": result.outcome, "answer": result.answer, "plan": result.plan,
                 "usage": {"calls": u.calls, "tokens": u.input + u.cache_read + u.cache_write + u.output,
@@ -310,7 +372,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
 
     @app.post("/api/ask")
     async def ask(body: Ask) -> dict:
-        budget.spend()
+        await spend()
         thread = uuid.uuid4().hex[:8]
         return reply(thread, await guarded(app.state.agent.ask(body.actor, body.text[:2000], thread)))
 
@@ -374,7 +436,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         verdict = check([Step(tool="create_issue", summary=body.summary, reason="created from the page")], world)[0]
         if not verdict.allowed:
             raise HTTPException(403, verdict.reason)
-        budget.spend()  # a new ticket is triaged by the model
+        await spend()  # a new ticket is triaged by the model
         issue = await guarded(app.state.box.create_in_sprint(world.actor.team, body.summary.strip(),
                                                              max(0, min(body.points, 13))))
         app.state.audit.record("issue_created", body.actor, "-", issue=issue.key, summary=issue.summary)
@@ -456,12 +518,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         plan would otherwise be what the next visitor finds. The route does not exist when the data is real."""
         if app.state.demo is None:
             raise HTTPException(404, "This deployment does not run on demo data.")
-        jira, issues = app.state.demo
-        jira.reset(issues)
-        for name in ("audit.jsonl", "access.json", "team_settings.json"):
-            (app.state.data / name).unlink(missing_ok=True)
-        app.state.access = Access(app.state.data / "access.json", audit=app.state.audit)
-        app.state.box.access = app.state.access
+        put(None)
         return {"ok": True}
 
     @app.get("/api/audit")

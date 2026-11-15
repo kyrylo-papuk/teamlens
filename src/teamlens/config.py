@@ -17,5 +17,11 @@ class Settings(BaseSettings):
     # 0 means no cap (local use).
     teamlens_daily_model_requests: int = 0
     teamlens_notice: str = ""  # one line shown at the top of the page, e.g. "Public demo on fictional data"
+    # Upstash Redis over REST, under either pair of names its integrations use. Set on the public demo only,
+    # where several instances have to share one copy of the fictional company: see web/shared.py.
+    kv_rest_api_url: str = ""
+    kv_rest_api_token: str = ""
+    upstash_redis_rest_url: str = ""
+    upstash_redis_rest_token: str = ""
     people_agent_url: str = "http://localhost:9101/"
     people_agent_token: str = "dev-only-token"  # set a real secret outside local runs

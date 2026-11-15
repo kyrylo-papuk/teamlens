@@ -131,6 +131,8 @@ class DeliveryAgent:
 
     async def decide(self, thread: str, approved: bool, approver_id: str) -> Result:
         """Answer the approval the graph is waiting for on this thread."""
+        if not (await self._graph.aget_state(self._config(thread))).next:  # nothing is paused here
+            raise ValueError("No plan is waiting for approval under this id: it was already decided, or it is not known.")
         decision = {"approved": approved, "by": approver_id}
         with self._box.tracing.request("decide", thread, approver_id, input=decision) as trace:
             result = self._wrap(await self._graph.ainvoke(Command(resume=decision), self._config(thread)))

@@ -34,10 +34,14 @@ class FakeJira:
         self.comments: dict[str, list[str]] = {}
         self.reset(issues)
 
-    def reset(self, issues: list[Issue]) -> None:
-        """Back to a given set of issues, with no comments."""
+    def reset(self, issues: list[Issue], comments: dict[str, list[str]] | None = None) -> None:
+        """Back to a given set of issues and their comments (none unless given)."""
         self._issues = {i.key: i.model_copy() for i in issues}
         self.comments.clear()
+        self.comments.update({key: list(texts) for key, texts in (comments or {}).items()})
+
+    def all(self) -> list[Issue]:
+        return list(self._issues.values())
 
     async def search(self, project=None, assignee_id=None, status=None, sprint_only=False) -> list[Issue]:
         return [
