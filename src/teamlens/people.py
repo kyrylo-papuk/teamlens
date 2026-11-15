@@ -17,6 +17,7 @@ class People(Protocol):
     async def person(self, employee_id: str) -> Person | None: ...
     async def team(self, team: str) -> list[Person]: ...
     async def department(self, department: str) -> list[Person]: ...
+    async def set_team(self, employee_id: str, team: str | None) -> Person: ...
     async def availability(self, employee_ids: list[str]) -> dict[str, Availability]: ...
 
 
@@ -38,6 +39,10 @@ class LocalPeople:
 
     async def department(self, department: str) -> list[Person]:
         return self._visible(self._hrm.people(department=department))
+
+    async def set_team(self, employee_id: str, team: str | None) -> Person:
+        self._hrm.set_team(employee_id, team)
+        return next(p for p in self._hrm.people() if p.id == employee_id)
 
     async def availability(self, employee_ids: list[str]) -> dict[str, Availability]:
         return {e: self._hrm.availability(e, self._start, self._end, self._today) for e in employee_ids}
@@ -96,6 +101,11 @@ class A2APeople:
     async def department(self, department: str) -> list[Person]:
         found = await self._lookup(skill="department", department=department)
         return self._visible([Person(**p) for p in found["people"]])
+
+    async def set_team(self, employee_id: str, team: str | None) -> Person:
+        # The People agent is reached with a read-only token, and it has no skill that changes a record.
+        raise PermissionError("This deployment reads people from the People agent with a read-only token. "
+                              "Who is in which team is changed on the HR side.")
 
     async def availability(self, employee_ids: list[str]) -> dict[str, Availability]:
         raw = await self._lookup(skill="availability", employee_ids=employee_ids,

@@ -104,7 +104,14 @@ def test_roles_settings_and_reset_travel_too(tmp_path):
         assert "issues.assign" in b.get("/api/me", params={"actor": FREE}).json()["rights"]
         assert b.get("/api/autoassign", params={"actor": MANAGER}).json()["mode"] == "auto"
 
+        cto = next(e.id for e in C.employees if e.role == "Chief Technology Officer")
+        hire = next(e.id for e in C.employees if e.department == "Engineering" and not e.team)
+        assert a.post("/api/teams", json={"actor": cto, "key": "RSK", "name": "Risk"}).json()["ok"]
+        assert b.post("/api/staff/add", json={"actor": cto, "employee_id": hire, "team": "RSK"}).json()["ok"]  # b knows the team
+        assert [x["employee_id"] for x in a.get("/api/overview", params={"actor": cto, "team": "RSK"}).json()["loads"]] == [hire]
+
         assert b.post("/api/demo/reset", json={}).json() == {"ok": True}
+        assert "RSK" not in a.get("/api/people").json()["teams"]
         assert "issues.assign" not in a.get("/api/me", params={"actor": FREE}).json()["rights"]
         assert a.get("/api/autoassign", params={"actor": MANAGER}).json()["mode"] == "suggest"
         assert a.get("/api/audit", params={"actor": MANAGER}).json()["total"] == 0

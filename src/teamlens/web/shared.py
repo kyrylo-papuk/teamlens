@@ -32,6 +32,7 @@ from pathlib import Path
 import httpx
 from langgraph.checkpoint.memory import InMemorySaver
 
+from teamlens.hrm import Hrm
 from teamlens.jira import FakeJira
 from teamlens.seed import Issue
 
@@ -164,16 +165,21 @@ def _original(x):
     return {_original(k): _original(v) for k, v in value}
 
 
-def snapshot(jira: FakeJira, data: Path, threads: Threads | None) -> dict:
+def snapshot(jira: FakeJira, data: Path, threads: Threads | None, hrm: Hrm | None = None) -> dict:
     return {"issues": [i.model_dump(mode="json") for i in jira.all()], "comments": jira.comments,
+            "org": hrm.changes() if hrm else None,  # teams created, people moved into a team or out of one
             "files": {name: (data / name).read_text(encoding="utf-8") for name in FILES if (data / name).exists()},
             "threads": threads.dump() if threads is not None else None}
 
 
-def restore(state: dict | None, jira: FakeJira, seed: list[Issue], data: Path, threads: Threads | None) -> None:
+def restore(state: dict | None, jira: FakeJira, seed: list[Issue], data: Path, threads: Threads | None,
+            hrm: Hrm | None = None) -> None:
     """Put this instance into ``state``; without one, into the state the demo starts in."""
     state = state or {"issues": None, "comments": {}, "files": {}, "threads": None}
     jira.reset(seed if state["issues"] is None else [Issue(**i) for i in state["issues"]], state["comments"])
+    if hrm:
+        hrm.replay(state.get("org"))
+        jira.projects |= set(hrm.teams)
     data.mkdir(parents=True, exist_ok=True)
     for name in FILES:
         if name in state["files"]:

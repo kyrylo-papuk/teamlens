@@ -46,20 +46,26 @@ RIGHTS = {
     "roles.grant": "Give and take away roles in the team",
     "roles.define": "Create and delete the team's own roles",
     "audit.view": "See the team's audit log",
+    "team.staff": "Add people to the team and remove them from it",
     "company.view": "See the work and load of every team",
     "managers.appoint": "Appoint and remove acting managers of teams",
+    "teams.create": "Create a team",
+    "leadership.appoint": "Give and take away leadership access",
 }
-COMPANY_RIGHTS = {"company.view", "managers.appoint"}  # they reach across teams
+COMPANY_RIGHTS = {"company.view", "managers.appoint", "teams.create", "leadership.appoint"}  # they reach across teams
+EXECUTIVE = {"company.view", "managers.appoint", "teams.create", "team.staff", "overview.view", "audit.view"}
 BUILT_IN = {
     "admin": set(RIGHTS),
-    "executive": {"company.view", "managers.appoint", "overview.view", "audit.view"},
+    "chief-executive": EXECUTIVE | {"leadership.appoint"},  # the one person who decides who else is leadership
+    "executive": EXECUTIVE,
     "manager": set(RIGHTS) - COMPANY_RIGHTS,
     "engineer": {"overview.view", "issues.take", "issues.move_own", "issues.create"},
 }
-COMPANY_WIDE = {"admin", "executive"}  # roles that hold in every team; a position or the configuration brings them
+COMPANY_WIDE = {"admin", "chief-executive", "executive"}  # roles that hold in every team
+COMPANY = "*"  # where a grant that holds in every team is recorded, in place of a team
 # The role a position brings. A member of a team whose position is not listed is an engineer.
 POSITIONS = {
-    "Chief Executive Officer": "executive",
+    "Chief Executive Officer": "chief-executive",
     "Chief Technology Officer": "executive",
     "Chief Operating Officer": "executive",
     "Engineering Manager": "manager",
@@ -116,6 +122,13 @@ class Access:
     def granted(self, person: Person, team: str) -> list[str]:
         return [g.role for g in self._grants if g.employee_id == person.id and g.team == team]
 
+    def level(self, person: Person) -> str | None:
+        """Where a person stands, for a page that groups people: executive, manager, engineer, or nothing."""
+        if not person.active:
+            return None
+        base = self.base_role(person)
+        return "executive" if base in COMPANY_WIDE or self.granted(person, COMPANY) else base
+
     def holders(self, role: str, team: str) -> list[str]:
         """Ids of the people who were given ``role`` in ``team``."""
         return [g.employee_id for g in self._grants if g.team == team and g.role == role]
@@ -128,7 +141,7 @@ class Access:
         if not person.active:
             return set()
         base = self.base_role(person)
-        held = self.granted(person, team) if team else []
+        held = (self.granted(person, team) if team else []) + self.granted(person, COMPANY)
         if base in COMPANY_WIDE or (team and team == person.team):
             held = [*held, base]
         return {right for name in held if name and (role := self._role(name, team or "")) for right in role.rights}
@@ -183,6 +196,38 @@ class Access:
                              "HR record cannot be taken away here.")
         self._grants.remove(mine[0])
         self._save("role_revoked", actor, employee=target.id, role=role_name, team=team)
+
+    def lead(self, actor: Person, target: Person) -> None:
+        """Give a person leadership access. Their position in the HR record stays what it is."""
+        self._need_company(actor, "leadership.appoint")
+        if not target.active:
+            raise ValueError(f"{target.name} no longer works here.")
+        if self.level(target) == "executive":
+            raise ValueError(f"{target.name} is already in leadership.")
+        self._grants.append(Grant(employee_id=target.id, role="executive", team=COMPANY, by=actor.id,
+                                  at=datetime.now(UTC).isoformat(timespec="seconds")))
+        self._save("leadership_given", actor, employee=target.id)
+
+    def unlead(self, actor: Person, target: Person) -> None:
+        self._need_company(actor, "leadership.appoint")
+        mine = [g for g in self._grants if g.employee_id == target.id and g.team == COMPANY]
+        if not mine:
+            raise ValueError(f"{target.name} was not given leadership access here. A leadership position in the HR "
+                             "record is changed by HR.")
+        self._grants.remove(mine[0])
+        self._save("leadership_taken", actor, employee=target.id)
+
+    def _need_company(self, actor: Person, right: str) -> None:
+        if right not in self.rights(actor):
+            raise PermissionError(f"{actor.name} does not have the right to do this: {RIGHTS[right].lower()}.")
+
+    def leave(self, actor: Person, target: Person, team: str) -> list[str]:
+        """A person left a team: the roles they were given there end with it. Returns their names."""
+        gone = [g.role for g in self._grants if g.employee_id == target.id and g.team == team]
+        if gone:
+            self._grants = [g for g in self._grants if not (g.employee_id == target.id and g.team == team)]
+            self._save("roles_ended", actor, employee=target.id, roles=gone, team=team)
+        return gone
 
     def define(self, actor: Person, name: str, rights: list[str]) -> Role:
         team = actor.team or ""

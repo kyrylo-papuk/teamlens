@@ -19,6 +19,7 @@ TEAMS = {"PAY": "Payments", "LED": "Ledger", "KYC": "Onboarding", "MOB": "Mobile
 OTHER_DEPARTMENTS = ["Sales", "Compliance", "Finance", "People", "Support", "Marketing", "Operations"]
 LEADERSHIP = "Leadership"  # department of the people who see every team
 CHIEFS = ["Chief Executive Officer", "Chief Technology Officer", "Chief Operating Officer"]
+NEW_HIRES = ["Backend Engineer", "Frontend Engineer", "QA Engineer", "DevOps Engineer"]  # hired, in no team yet
 ROLES = ["Backend Engineer", "Backend Engineer", "Frontend Engineer", "QA Engineer",
          "Backend Engineer", "Mobile Engineer", "DevOps Engineer", "Engineering Manager"]
 FIRST = ["Dana", "Marek", "Ines", "Tomas", "Leila", "Oskar", "Priya", "Jonas", "Sofia", "Emre",
@@ -155,6 +156,8 @@ def generate(seed: int = 7, today: date = TODAY) -> Company:
     # fixed values, so the random stream above, and with it every team's data, is exactly what it was before.
     for e, title in zip(employees[-3:], CHIEFS, strict=True):
         e.department, e.role, e.weekly_hours = LEADERSHIP, title, 40
+    for e, title in zip(employees[-7:-3], NEW_HIRES, strict=True):  # engineers waiting for someone to place them
+        e.department, e.role, e.weekly_hours = "Engineering", title, 40
     cto = employees[-2]
     for e in employees:
         if e.role == "Engineering Manager":

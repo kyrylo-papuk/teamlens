@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 from pydantic import BaseModel
 
-from teamlens.seed import Absence, Employee
+from teamlens.seed import TEAMS, Absence, Employee
 
 
 class Person(BaseModel):
@@ -43,6 +43,8 @@ class Hrm:
     def __init__(self, employees: list[Employee], absences: list[Absence]) -> None:
         self._employees = {e.id: e for e in employees}
         self._absences = absences
+        self._first = {e.id: (e.team, e.manager_id) for e in employees}  # teams as the HR system had them at the start
+        self.teams: dict[str, str] = dict(TEAMS)  # key -> name; leadership can add to it
 
     def people(self, team: str | None = None, department: str | None = None) -> list[Person]:
         return [
@@ -51,6 +53,30 @@ class Hrm:
             for e in self._employees.values()
             if (team is None or e.team == team) and (department is None or e.department == department)
         ]
+
+    def set_team(self, employee_id: str, team: str | None) -> None:
+        """Move a person into a team or out of it. The one thing this module changes; see teamlens/staffing.py."""
+        e = self._employees[employee_id]
+        e.team = team
+        e.manager_id = next((m.id for m in self._employees.values() if team and m.team == team
+                             and m.role == "Engineering Manager"), None)
+
+    def add_team(self, key: str, name: str) -> None:
+        self.teams[key] = name
+
+    def changes(self) -> dict:
+        """What differs from the start: teams that were created, and everyone whose team is not the one they began in."""
+        return {"created": {k: n for k, n in self.teams.items() if k not in TEAMS},
+                "moves": {e.id: e.team for e in self._employees.values() if e.team != self._first[e.id][0]}}
+
+    def replay(self, changes: dict | None = None) -> None:
+        """Back to the starting teams, then ``changes`` on top."""
+        changes = changes or {"created": {}, "moves": {}}
+        self.teams = {**TEAMS, **changes["created"]}
+        for e in self._employees.values():
+            e.team, e.manager_id = self._first[e.id]
+        for employee_id, team in changes["moves"].items():
+            self.set_team(employee_id, team)
 
     def availability(self, employee_id: str, start: date, end: date, today: date) -> Availability:
         e = self._employees[employee_id]

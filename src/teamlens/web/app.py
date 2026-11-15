@@ -12,8 +12,10 @@ in front, and the position comes from the HR record either way.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 import uuid
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
@@ -26,8 +28,8 @@ from fastapi.responses import HTMLResponse
 from mcp import Client
 from pydantic import BaseModel
 
-from teamlens import live
-from teamlens.access import COMPANY_WIDE, POSITIONS, RIGHTS, Access
+from teamlens import live, staffing
+from teamlens.access import COMPANY, COMPANY_WIDE, POSITIONS, RIGHTS, Access
 from teamlens.config import Settings
 from teamlens.delivery import digest as digests
 from teamlens.delivery import direct
@@ -91,6 +93,18 @@ class Move(BaseModel):
     status: str
 
 
+class Staff(BaseModel):
+    actor: str
+    employee_id: str
+    team: str | None = None  # the team to add the person to; a removal needs none
+
+
+class NewTeam(BaseModel):
+    actor: str
+    key: str
+    name: str
+
+
 class OnActor(BaseModel):
     actor: str
 
@@ -148,18 +162,21 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         else:
             c, users = live.company(), live.load_users()
             jira = JiraCloud(s, users)
-        only, http = (set(users) if users else None), None
+        only, http, hrm = (set(users) if users else None), None, None
         if os.environ.get("TEAMLENS_A2A") == "1":
             http = httpx.AsyncClient(base_url=s.people_agent_url, timeout=120,
                                      headers={"Authorization": f"Bearer {s.people_agent_token}"})
             people = A2APeople(http, c.today, c.sprint_start, c.sprint_end, only=only)
         else:
-            people = LocalPeople(Hrm(c.employees, c.absences), c.today, c.sprint_start, c.sprint_end, only=only)
+            hrm = Hrm(c.employees, c.absences)
+            people = LocalPeople(hrm, c.today, c.sprint_start, c.sprint_end, only=only)
+        app.state.hrm = hrm if fake and http is None else None  # the demo's own HR system, when it lives in this process
         async with AsyncExitStack() as stack:
             client = await stack.enter_async_context(Client(jira_server(jira)))
             app.state.team = s.jira_team_key
             # The demo company has every team in Jira; a real site is connected one project at a time.
-            app.state.teams = list(TEAMS) if fake else [s.jira_team_key]
+            app.state.teams = list(TEAMS) if fake else [s.jira_team_key]  # one list object: the toolbox holds it too
+            app.state.names = dict(TEAMS)
             app.state.demo = (jira, c.issues) if fake else None  # what a reset of the demo goes back to
             app.state.people = people
             # Everything the app writes goes to one folder. Hosts with a read-only filesystem point it at /tmp.
@@ -223,7 +240,9 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
     def put(state: dict | None) -> None:
         """Put this instance into a saved state of the demo, or without one into the state it starts in."""
         jira, seed = app.state.demo
-        restore(state, jira, seed, app.state.data, app.state.threads)
+        restore(state, jira, seed, app.state.data, app.state.threads, app.state.hrm)
+        if app.state.hrm:  # teams may have been created or, after a reset, gone again
+            app.state.teams[:], app.state.names = list(app.state.hrm.teams), dict(app.state.hrm.teams)
         app.state.access = Access(app.state.data / "access.json", audit=app.state.audit)  # roles are held in memory
         app.state.box.access = app.state.access
 
@@ -248,7 +267,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             response = await call_next(request)
             if changing:
                 try:
-                    await shared.save(snapshot(app.state.demo[0], app.state.data, app.state.threads))
+                    await shared.save(snapshot(app.state.demo[0], app.state.data, app.state.threads, app.state.hrm))
                 except StoreDown:
                     log.warning("shared store unreachable; this change stays in this instance's memory")
             return response
@@ -274,7 +293,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         return PAGE.read_text(encoding="utf-8")
 
     async def sweep(team: str) -> list:
-        return await app.state.auto.sweep(team, app.state.managers[team])
+        return await app.state.auto.sweep(team, app.state.managers.get(team))  # a new team may have no manager yet
 
     def lacking(who, right: str) -> HTTPException:
         return HTTPException(403, f"{who.name} does not have the right to do this: {RIGHTS[right].lower()}.")
@@ -286,17 +305,19 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         access, listed = app.state.access, list(await app.state.people.department(LEADERSHIP))
         for key in app.state.teams:
             listed += await app.state.people.team(key)
-        return {"team": app.state.team, "teams": {key: TEAMS.get(key, key) for key in app.state.teams},
+        known = {p.id for p in listed}  # leadership access given by hand, to someone who is in none of the above
+        listed += [await person(e) for e in access.holders("executive", COMPANY) if e not in known]
+        return {"team": app.state.team, "teams": {key: app.state.names.get(key, key) for key in app.state.teams},
                 "source": app.state.source, "tracing": app.state.tracing.enabled, "notice": s.teamlens_notice, "demo": fake,
                 "shared": app.state.shared is not None,
-                "people": [{"id": p.id, "name": p.name, "role": p.role, "team": p.team, "level": access.base_role(p)}
-                           for p in listed if access.base_role(p)]}
+                "people": [{"id": p.id, "name": p.name, "role": p.role, "team": p.team, "level": access.level(p)}
+                           for p in listed if access.level(p)]}
 
     @app.get("/api/me")
     async def me(actor: str) -> dict:
         """What the page needs to decide which screens this person gets."""
         p, access = await person(actor), app.state.access
-        return {"id": p.id, "name": p.name, "position": p.role, "team": p.team, "level": access.base_role(p),
+        return {"id": p.id, "name": p.name, "position": p.role, "team": p.team, "level": access.level(p),
                 "granted": access.granted(p, p.team) if p.team else [], "rights": sorted(access.rights(p))}
 
     @app.get("/api/company")
@@ -313,14 +334,44 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             for finding in world.overview.findings:
                 kinds[finding.kind] = kinds.get(finding.kind, 0) + 1
             teams.append({
-                "key": key, "name": TEAMS.get(key, key), **managers(world),
+                "key": key, "name": app.state.names.get(key, key), **managers(world),
                 "people": len(here), "away": sum(not x.availability.available_today for x in here),
                 # Capacity is the forecast's number (managers carry no sprint work), so the two columns agree.
                 "points": sum(x.sprint_points for x in here), "capacity": f.capacity,
                 "forecast": {"committed": f.committed, "done": f.done, "expected": f.expected, "at_risk": f.at_risk},
                 "findings": kinds, "unowned": len(app.state.auto.unowned(world)),
             })
-        return {"teams": teams}
+        mine = access.rights(viewer)
+        leaders = list(await app.state.people.department(LEADERSHIP))
+        by_hand = access.holders("executive", COMPANY)
+        leaders += [await person(e) for e in by_hand if e not in {p.id for p in leaders}]
+        return {"teams": teams, "can_create": "teams.create" in mine and app.state.hrm is not None,
+                "can_appoint": "leadership.appoint" in mine,
+                "leaders": [{"id": p.id, "name": p.name, "role": p.role, "given": p.id in by_hand}
+                            for p in leaders if access.level(p) == "executive"]}
+
+    @app.post("/api/teams")
+    async def new_team(body: NewTeam) -> dict:
+        """Leadership creates a team: an empty one, with a Jira project of the same key in the demo."""
+        if app.state.hrm is None:  # real Jira, or people behind the People agent: the list of teams is not ours to extend
+            raise HTTPException(409, "In this deployment teams follow the Jira projects it is connected to.")
+        key, name = await guarded(staffing.create_team(app.state.box, app.state.people, app.state.audit, app.state.hrm.teams,
+                                                       body.actor, body.key, body.name))
+        app.state.hrm.add_team(key, name)
+        app.state.demo[0].projects.add(key)
+        app.state.teams.append(key)
+        app.state.names[key] = name
+        return {"ok": True, "key": key, "name": name}
+
+    @app.post("/api/leadership/give")
+    async def give_leadership(body: Staff) -> dict:
+        actor, target = await person(body.actor), await person(body.employee_id)
+        return await change_roles(lambda: app.state.access.lead(actor, target))
+
+    @app.post("/api/leadership/take")
+    async def take_leadership(body: Staff) -> dict:
+        actor, target = await person(body.actor), await person(body.employee_id)
+        return await change_roles(lambda: app.state.access.unlead(actor, target))
 
     def managers(world) -> dict:
         """Who runs the team: the manager named in the HR record, and anyone leadership made an acting manager."""
@@ -338,7 +389,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                   for k, i in world.issues.items()}
         backlog = [k for k, i in world.issues.items() if i.assignee_id is None and i.status != "Done" and not i.in_sprint]
         return {"today": str(world.overview.today), "actor": world.actor.model_dump(), "rights": sorted(world.rights),
-                "team": world.team, "team_name": TEAMS.get(world.team, world.team), **managers(world),
+                "team": world.team, "team_name": app.state.names.get(world.team, world.team), **managers(world),
+                "can_staff": staffing.RIGHT in world.rights,
                 "loads": [x.model_dump(mode="json") for x in world.overview.loads],
                 "findings": [{**f.model_dump(), "name": names.get(f.employee_id)} for f in world.overview.findings],
                 "issues": issues, "backlog": backlog, "forecast": app.state.box.forecast(world).model_dump()}
@@ -512,6 +564,27 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
         me = await person(body.actor)
         return await change_roles(lambda: app.state.access.delete(me, body.name))
 
+    # --- who is in which team: buttons and plain code, never the model -----------------------
+
+    @app.get("/api/staff/pool")
+    async def staff_pool(actor: str) -> dict:
+        """People who can be added to a team, for someone who may add them."""
+        viewer = await person(actor)
+        if staffing.RIGHT not in app.state.access.rights(viewer):
+            raise lacking(viewer, staffing.RIGHT)
+        return {"people": [{"id": p.id, "name": p.name, "role": p.role} for p in await staffing.pool(app.state.people)]}
+
+    @app.post("/api/staff/add")
+    async def staff_add(body: Staff) -> dict:
+        moved = await guarded(staffing.add(app.state.box, app.state.people, app.state.audit, body.actor,
+                                           body.employee_id, body.team or ""))
+        return {"ok": True, "team": moved.team}
+
+    @app.post("/api/staff/remove")
+    async def staff_remove(body: Staff) -> dict:
+        await guarded(staffing.remove(app.state.box, app.state.people, app.state.audit, body.actor, body.employee_id))
+        return {"ok": True}
+
     @app.post("/api/demo/reset")
     async def reset_demo() -> dict:
         """Put the fictional company back to its starting state. A shared demo needs this: one visitor's approved
@@ -534,6 +607,10 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             members = {p.id for p in await app.state.people.team(team)}
             entries = [e for e in entries if e["actor"] in members or e["data"].get("on_behalf_of") in members
                        or e["data"].get("team") == team]
-        return {"intact": log.verify() is None, "total": len(entries), "entries": entries[-limit:][::-1]}
+        shown = entries[-limit:][::-1]
+        # Entries hold employee ids. The page shows names, also of people who are in no team any more.
+        mentioned = sorted(set(re.findall(r"\bE\d{3}\b", json.dumps(shown))))
+        names = {e: p.name for e in mentioned if (p := await app.state.people.person(e))}
+        return {"intact": log.verify() is None, "total": len(entries), "entries": shown, "names": names}
 
     return app

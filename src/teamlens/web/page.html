@@ -73,6 +73,9 @@
        display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   h2 .count { background: var(--chip); border-radius: 10px; padding: 0 8px; font-size: 12px; }
   h2 .right { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  h2 select { font-weight: 400; font-size: 12px; padding: 3px 8px; }
+  button[data-unstaff] { color: var(--muted); border-color: transparent; background: none; }
+  button[data-unstaff]:hover { border-color: var(--line); color: var(--bad); }
   #flash { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); border-radius: 8px; padding: 9px 12px;
            margin-bottom: 12px; }
   .teamhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -195,8 +198,15 @@
             <thead><tr><th>Team</th><th>Managed by</th><th>People</th><th>Sprint forecast</th><th>Load</th><th>Needs attention</th><th></th></tr></thead>
             <tbody id="company"></tbody>
           </table>
-          <div class="meta" style="margin-top:10px">Open a team to see its people and work. Leadership looks and decides who manages a team;
-            changing the team's issues is the job of its manager.</div>
+          <div class="meta" style="margin-top:10px">Open a team to see its people and work, to add people to it and to name its manager.
+            Changing the team's issues is the job of its manager.</div>
+          <div class="row" id="teamnew" hidden><input id="teamname" placeholder="New team, for example Risk">
+            <input id="teamkey" placeholder="Key: RSK" style="flex:0 0 120px;min-width:0"><button id="teamadd">Create team</button></div>
+        </section>
+        <section>
+          <h2>Leadership <select class="right" id="leadadd" hidden></select></h2>
+          <div class="chips" id="leaders"></div>
+          <div class="meta" style="margin-top:8px">Positions come from the HR record. Leadership access can also be given to a person here, and taken back.</div>
         </section>
       </div>
 
@@ -234,9 +244,9 @@
           <div id="findings"></div>
         </section>
         <section>
-          <h2>People <span class="count" id="today"></span></h2>
+          <h2>People <span class="count" id="today"></span> <select class="right" id="staffadd" hidden></select></h2>
           <table>
-            <thead><tr><th>Person</th><th>Open issues</th><th>Sprint load</th><th>Status</th></tr></thead>
+            <thead><tr><th>Person</th><th>Open issues</th><th>Sprint load</th><th>Status</th><th></th></tr></thead>
             <tbody id="team"></tbody>
           </table>
         </section>
@@ -261,7 +271,10 @@
 
       <div class="view" id="v-history" hidden>
         <section>
-          <h2>Audit log <span class="tag ok" id="chain"></span> <span class="right meta" id="auditscope"></span></h2>
+          <h2>Audit log <span class="tag ok" id="chain"></span> <span class="right meta" id="auditscope"></span>
+            <span class="modes right" id="auditteams" hidden></span>
+            <span class="modes right" id="auditkinds"><button data-auditall="0">Changes</button><button data-auditall="1">Everything</button></span></h2>
+          <div class="meta" id="auditnote" style="margin:-4px 0 8px"></div>
           <div id="audit"></div>
         </section>
       </div>
@@ -331,6 +344,9 @@ const FIX = {
   assigned_to_terminated: n => `Reassign the open work of ${n}, who has left, to people with capacity.`,
   overloaded: n => `${n} is overloaded. Move some of their sprint work to people with capacity.`,
 };
+const CHANGES = new Set(["step", "direct_change", "auto_assign", "auto_assign_undone", "issue_created", "role_granted", "role_revoked",
+                         "role_defined", "role_deleted", "roles_ended", "team_joined", "team_left", "team_created",
+                         "leadership_given", "leadership_taken"]);
 let P = null;                 // the company: teams and the people who can be picked
 let S = {};                   // this session: me, rights, tab, team in view, its overview and assignment state
 let issues = {}, names = {}, thread = null, opened = null;
@@ -418,6 +434,7 @@ async function loadTeam() {
   // instance for a burst of parallel requests would answer some of them from a different copy of the company.
   S.o = await api("/api/overview?" + q);
   S.a = await api("/api/autoassign?" + q);
+  S.pool = S.o.can_staff ? (await api("/api/staff/pool?actor=" + S.me.id)).people : [];
   S.R = new Set(S.o.rights);  // rights in the team in view, which is what decides the buttons there
   issues = S.o.issues;
   names = Object.fromEntries(S.o.loads.map(x => [x.employee_id, x.name]));
@@ -477,7 +494,7 @@ function renderTeam() {
     <span class="meta">managed by ${esc(o.manager?.name || "nobody")}</span>
     ${o.acting.map(p => `<span class="chip grant">${esc(p.name)} · acting manager${appoint ? `<button title="Take it back" data-unappoint="${esc(p.id)}">×</button>` : ""}</span>`).join("")}
     ${appoint ? `<select id="appoint"><option value="">+ acting manager</option>${candidates.map(x => `<option value="${esc(x.employee_id)}">${esc(x.name)}</option>`).join("")}</select>` : ""}
-    ${own ? "" : '<span class="tag">view only</span>'}`;
+    ${own ? "" : '<span class="tag">issues: view only</span>'}`;
   $("today").textContent = o.today;
   const f = o.forecast, pct = v => (f.committed ? Math.min(100, 100 * v / f.committed) : 0) + "%";
   $("risk").textContent = f.at_risk ? "at risk" : "on track"; $("risk").className = "tag " + (f.at_risk ? "bad" : "ok");
@@ -501,17 +518,21 @@ function renderTeam() {
       <td><div class="chips">${x.open_issues.map(k => chipBtn(k)).join("") || '<span class="empty">none</span>'}</div></td>
       <td><div class="bar"><i style="width:${Math.min(p, 100)}%;background:${color}"></i></div>
           <div class="load">${x.sprint_points} of ${x.capacity_points} pts${x.load == null ? "" : " · " + p + "%"}</div></td>
-      <td>${status}</td></tr>`;
+      <td>${status}</td>
+      <td>${o.can_staff && x.employee_id !== o.manager?.id ? `<button class="small" data-unstaff="${esc(x.employee_id)}" title="Remove from the team">Remove</button>` : ""}</td></tr>`;
   }).join("");
+  $("staffadd").hidden = !o.can_staff;
+  $("staffadd").innerHTML = `<option value="">+ add a person${S.pool.length ? "" : " (nobody is waiting for a team)"}</option>`
+    + S.pool.map(x => `<option value="${esc(x.id)}">${esc(x.name)} · ${esc(x.role)}</option>`).join("");
   $("modes").hidden = !a.can_configure;
   for (const b of $("modes").children) b.className = b.dataset.mode === a.mode ? "on" : "";
   $("modeinfo").textContent = a.mode === "auto"
     ? `Auto: new sprint work gets an owner without asking${a.set_by ? ", switched on by " + a.set_by : ""}. Every assignment is explained and can be undone.`
-    : a.can_configure ? "Suggest: the system proposes an owner; you confirm." : "";
+    : a.can_configure ? "Suggest: the system proposes an owner. Take the proposal, pick someone else, or leave the task open: anyone in the team can take it from My work." : "";
   $("nunowned").textContent = a.suggestions.length;
   $("unowned").innerHTML = a.suggestions.map(s => `<div class="sug"><div>${keyBtn(s.issue_key)} ${esc(s.summary)} · ${s.points} pts
         ${s.area ? `<span class="tag ${s.area_confidence >= 0.5 ? "ok" : "warn"}" title="Kind of work, by ${esc(a.triage)}">${esc(s.area)}${s.area_confidence < 1 ? " · " + Math.round(s.area_confidence * 100) + "%" : ""}</span>` : ""}</div>
-      ${s.assignee_id && a.can_configure ? `<button class="primary small" data-act="assign" data-key="${esc(s.issue_key)}">Assign to ${esc(s.assignee_name)}</button>` : "<span></span>"}
+      ${a.can_configure ? owner(s) : "<span></span>"}
       ${a.can_configure ? `<div class="why">${esc(s.reason)}</div>` : ""}</div>`).join("") || '<div class="empty">Every sprint issue has an owner.</div>';
   $("recent").innerHTML = a.recent.map(r => `<div class="sug"><div><span class="tag ok">${r.by_system ? "auto" : "confirmed"}</span> <b>${esc(r.issue_key)}</b> → ${esc(r.assignee_name)}</div>
       ${a.can_configure ? `<button class="small" data-act="undo" data-key="${esc(r.issue_key)}">Undo</button>` : "<span></span>"}
@@ -519,6 +540,25 @@ function renderTeam() {
   $("newrow").hidden = !(own && a.can_create);
   $("nback").textContent = o.backlog.length;
   $("backlog").innerHTML = o.backlog.map(k => chipBtn(k, k + " · " + issues[k]?.summary)).join("") || '<span class="empty">Empty.</span>';
+}
+
+// The system proposes an owner; the person deciding takes the proposal or picks anyone else who is at work.
+function owner(s) {
+  if (!s.candidates.length) return "<span></span>";
+  const option = c => `<option value="${esc(c.employee_id)}">${esc(c.name)} · ${Math.round(c.load_after * 100)}% after${c.employee_id === s.assignee_id ? " · proposed" : ""}</option>`;
+  const order = [...s.candidates.filter(c => c.employee_id === s.assignee_id), ...s.candidates.filter(c => c.employee_id !== s.assignee_id)];
+  return `<span class="row" style="margin:0"><select data-owner="${esc(s.issue_key)}" data-proposed="${esc(s.assignee_id || "")}">${order.map(option).join("")}</select>
+    <button class="primary small" data-give="${esc(s.issue_key)}">Assign</button></span>`;
+}
+function give(key) {
+  const pick = document.querySelector(`select[data-owner="${key}"]`);
+  return pick.value === pick.dataset.proposed ? act("assign", key)  // the proposal, with its reasoning on record
+    : assign(key, pick.value);                                      // someone else: the same rules decide
+}
+async function staff(what, body) {
+  try { await api("/api/staff/" + what, {actor: S.me.id, ...body}); flash(""); } catch (e) { flash(e.message); }
+  await company();  // who can be picked on the start screen follows the teams
+  await refresh();
 }
 
 async function loadCompany() {
@@ -532,7 +572,7 @@ async function loadCompany() {
     const problems = Object.entries(t.findings).map(([k, n]) => `<span class="tag ${(KIND[k] || [])[1] || "warn"}">${n} × ${(KIND[k] || [k])[0]}</span>`).join(" ")
       || '<span class="tag ok">nothing</span>';
     return `<tr class="go" data-goteam="${esc(t.key)}"><td><div class="name">${esc(t.name)}</div><div class="role">${esc(t.key)}</div></td>
-      <td>${esc(t.manager?.name || "nobody")}${t.acting.map(p => `<div class="role">acting: ${esc(p.name)}</div>`).join("")}</td>
+      <td>${t.manager ? esc(t.manager.name) : t.acting.length ? "" : "nobody yet"}${t.acting.map(p => `<div class="${t.manager ? "role" : ""}">${esc(p.name)} <span class="role">acting</span></div>`).join("")}</td>
       <td>${t.people}${t.away ? ` <span class="tag warn">${t.away} away</span>` : ""}</td>
       <td><div class="fbar thin"><i class="done" style="width:${pct(f.done)}"></i><i class="exp" style="width:${pct(f.expected)}"></i></div>
           <div class="load">${Math.round(f.expected)} of ${f.committed} pts expected <span class="tag ${f.at_risk ? "bad" : "ok"}">${f.at_risk ? "at risk" : "on track"}</span></div></td>
@@ -540,14 +580,48 @@ async function loadCompany() {
       <td><div class="chips">${problems}</div></td>
       <td><button class="small">Open</button></td></tr>`;
   }).join("");
+  $("teamnew").hidden = !c.can_create;
+  $("leaders").innerHTML = c.leaders.map(p => `<span class="chip${p.given ? " grant" : ""}">${esc(p.name)} · ${esc(p.given ? "leadership access" : p.role)}${
+    p.given && c.can_appoint ? `<button title="Take it back" data-unlead="${esc(p.id)}">×</button>` : ""}</span>`).join("");
+  $("leadadd").hidden = !c.can_appoint;
+  if (c.can_appoint) {
+    const waiting = (await api("/api/staff/pool?actor=" + S.me.id)).people.map(p => ({...p, team: "no team yet"}));
+    const others = P.people.filter(p => p.level !== "executive");
+    $("leadadd").innerHTML = `<option value="">+ give leadership access</option>` + [...waiting, ...others]
+      .map(p => `<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.role)} · ${esc(p.team)}</option>`).join("");
+  }
+}
+async function lead(what, employee_id) {
+  try { await api("/api/leadership/" + what, {actor: S.me.id, employee_id}); flash(""); } catch (e) { flash(e.message); }
+  await company();
+  await refresh(true);
+}
+async function createTeam() {
+  try {
+    await api("/api/teams", {actor: S.me.id, key: $("teamkey").value, name: $("teamname").value});
+    $("teamkey").value = $("teamname").value = ""; flash("");
+  } catch (e) { flash(e.message); }
+  await company();
+  await refresh();
 }
 
 async function loadAudit() {
-  const a = await api("/api/audit?actor=" + S.me.id + "&limit=100");
-  $("auditscope").textContent = S.me.team ? "team " + S.me.team : "all teams";
+  const all = S.rights.has("company.view"), team = all ? (S.auditTeam || "") : "";
+  const a = await api("/api/audit?actor=" + S.me.id + "&limit=300" + (team ? "&team=" + team : ""));
+  // By default: what changed, who did it, in which team. The questions, plans, refusals and settings are one click away.
+  const shown = a.entries.filter(e => S.auditAll || (CHANGES.has(e.kind) && e.data.allowed !== false && !(e.kind === "auto_assign" && !e.data.assignee)));
+  for (const b of $("auditkinds").children) b.className = (b.dataset.auditall === "1") === !!S.auditAll ? "on" : "";
+  $("auditnote").textContent = S.auditAll ? "Every entry of the log: requests, plans, approvals, refusals, settings and changes."
+    : `Changes only: ${shown.length} of ${a.entries.length} entries.`;
+  const by = Object.fromEntries(P.people.map(p => [p.id, p]));
+  const named = text => String(text ?? "").replace(/\bE\d{3}\b/g, id => a.names[id] || id);
+  $("auditscope").textContent = all ? "" : "team " + S.me.team;
+  $("auditteams").hidden = !all;
+  $("auditteams").innerHTML = [["*", "All teams"], ...Object.keys(P.teams).map(k => [k, k])]
+    .map(([k, label]) => `<button data-auditteam="${k}" class="${(k === "*" ? "" : k) === team ? "on" : ""}">${label}</button>`).join("");
   $("chain").textContent = a.intact ? `chain intact · ${a.total} entries` : "CHAIN BROKEN";
   $("chain").className = "tag " + (a.intact ? "ok" : "bad");
-  $("audit").innerHTML = a.entries.map(e => {
+  $("audit").innerHTML = shown.map(e => {
     const d = e.data, detail = e.kind === "request" ? d.text : e.kind === "plan_proposed" ? (d.refused.length ? "refused: " + d.refused.join("; ") : d.plan.summary)
       : e.kind === "approval" ? (d.approved ? "approved" : "rejected") : e.kind === "step" ? d.result
       : e.kind === "auto_assign" ? `${d.issue} → ${d.assignee || "nobody"}: ${d.reason}` : e.kind === "autoassign_mode" ? `mode ${d.mode}`
@@ -555,10 +629,16 @@ async function loadAudit() {
       : e.kind === "role_defined" ? `${d.role}: ${d.rights.join(", ")}` : e.kind === "role_deleted" ? d.role
       : e.kind === "digest" ? `checked, ${d.problems_found} found, ${d.problems_left} left`
       : e.kind === "direct_change" ? (d.allowed ? d.result : "refused: " + d.result)
+      : e.kind === "team_joined" ? `${d.employee} joined team ${d.team}` : e.kind === "team_left" ? `${d.employee} left team ${d.team}`
+      : e.kind === "roles_ended" ? `${d.roles.join(", ")} ended for ${d.employee}`
+      : e.kind === "team_created" ? `team ${d.team} created: ${d.name}`
+      : e.kind === "leadership_given" ? `leadership access → ${d.employee}` : e.kind === "leadership_taken" ? `leadership access taken from ${d.employee}`
       : e.kind === "auto_assign_undone" ? `${d.issue} unassigned` : e.kind === "issue_created" ? `${d.issue} ${d.summary}` : d.outcome;
+    const where = all && !team ? (by[e.actor]?.team || d.team || by[d.on_behalf_of]?.team || "") : "";
+    const text = `${a.names[e.actor] || (e.actor === "autoassign" ? "the system" : e.actor)} · ${named(detail)}`;
     return `<div class="entry"><span class="t">${esc(e.at.slice(11, 19))}</span><span class="kind">${esc(e.kind)}</span>
-      <span class="d" title="${esc(detail)}">${esc(e.actor)} · ${esc(detail)}</span></div>`;
-  }).join("") || '<div class="empty">No entries yet. Every request, plan, approval and change lands here.</div>';
+      <span class="d" title="${esc(text)}">${where ? `<span class="chip">${esc(where)}</span> ` : ""}${esc(text)}</span></div>`;
+  }).join("") || '<div class="empty">Nothing here yet.</div>';
 }
 
 async function loadRoles() {
@@ -713,6 +793,11 @@ document.addEventListener("click", e => {
   else if (d.dlg) dialogAction(d);
   else if (d.act) act(d.act, d.key);
   else if (d.mode) setMode(d.mode);
+  else if (d.give) give(d.give);
+  else if (d.unstaff) staff("remove", {employee_id: d.unstaff});
+  else if (d.unlead) lead("take", d.unlead);
+  else if (d.auditall) { S.auditAll = d.auditall === "1"; refresh(); }
+  else if (d.auditteam) { S.auditTeam = d.auditteam === "*" ? "" : d.auditteam; refresh(); }
   else if (d.fix) { const x = S.o.findings[+d.fix]; $("text").value = FIX[x.kind](x.name); setPanel(true); $("text").focus(); }
   else if (d.unappoint) roleAction("revoke", {employee_id: d.unappoint, role: "manager"});
   else if (d.do === "revoke") roleAction("revoke", {employee_id: d.who, role: d.role});
@@ -725,13 +810,18 @@ document.addEventListener("click", e => {
 document.addEventListener("change", e => {
   const el = e.target;
   if (el.id === "appoint" && el.value) roleAction("grant", {employee_id: el.value, role: "manager"});
+  else if (el.id === "staffadd" && el.value) staff("add", {employee_id: el.value, team: S.team});
+  else if (el.id === "leadadd" && el.value) lead("give", el.value);
   else if (el.closest("#members") && el.tagName === "SELECT" && el.value) roleAction("grant", {employee_id: el.dataset.who, role: el.value});
 });
 
-(async () => {
+async function company() {
   P = await api("/api/people");
   const keys = Object.keys(P.teams);
   $("src").textContent = `${keys.length > 1 ? keys.length + " teams" : "team " + keys[0]} · ${P.source}`;
+}
+(async () => {
+  await company();
   if (P.notice) { $("notice").textContent = P.notice; $("notice").hidden = false; }
   if (P.demo) {
     $("reset").hidden = false;
@@ -745,6 +835,7 @@ document.addEventListener("change", e => {
   $("iclose").onclick = () => $("issue").close();
   $("issue").onclick = e => { if (e.target === $("issue")) $("issue").close(); };  // a click on the backdrop
   $("newadd").onclick = addIssue;
+  $("teamadd").onclick = createTeam;
   let typing;
   $("newsum").oninput = () => { clearTimeout(typing); typing = setTimeout(checkDuplicates, 450); };
   $("send").onclick = send; $("digest").onclick = digest;

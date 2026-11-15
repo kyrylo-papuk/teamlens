@@ -37,6 +37,7 @@ class FakeJira:
     def reset(self, issues: list[Issue], comments: dict[str, list[str]] | None = None) -> None:
         """Back to a given set of issues and their comments (none unless given)."""
         self._issues = {i.key: i.model_copy() for i in issues}
+        self.projects = {i.project for i in issues}  # a project can exist before its first issue
         self.comments.clear()
         self.comments.update({key: list(texts) for key, texts in (comments or {}).items()})
 
@@ -75,9 +76,9 @@ class FakeJira:
 
     async def create(self, project, summary, type="Task", story_points=1, assignee_id=None, in_sprint=False) -> Issue:
         numbers = [int(k.split("-")[1]) for k, i in self._issues.items() if i.project == project]
-        if not numbers:
+        if project not in self.projects:
             raise JiraError(f"Project {project} does not exist.")
-        issue = Issue(key=f"{project}-{max(numbers) + 1}", project=project, summary=summary, type=type,
+        issue = Issue(key=f"{project}-{max(numbers, default=0) + 1}", project=project, summary=summary, type=type,
                       status="To Do", assignee_id=assignee_id, story_points=story_points, in_sprint=in_sprint,
                       created=self._today, updated=self._today)
         self._issues[issue.key] = issue
