@@ -414,14 +414,17 @@ function tabs() {
 }
 async function loadTeam() {
   const q = "actor=" + S.me.id + (S.team !== S.me.team ? "&team=" + S.team : "");
-  [S.o, S.a] = await Promise.all([api("/api/overview?" + q), api("/api/autoassign?" + q)]);
+  // One request at a time, on purpose. The public demo keeps its data in memory, and a host that starts a second
+  // instance for a burst of parallel requests would answer some of them from a different copy of the company.
+  S.o = await api("/api/overview?" + q);
+  S.a = await api("/api/autoassign?" + q);
   S.R = new Set(S.o.rights);  // rights in the team in view, which is what decides the buttons there
   issues = S.o.issues;
   names = Object.fromEntries(S.o.loads.map(x => [x.employee_id, x.name]));
 }
-async function refresh() {
+async function refresh(rights) {
   try {
-    S.me = await api("/api/me?actor=" + S.me.id); S.rights = new Set(S.me.rights);  // a role may have been given or taken
+    if (rights) { S.me = await api("/api/me?actor=" + S.me.id); S.rights = new Set(S.me.rights); }  // a role was given or taken
     if (S.team) await loadTeam();
     const list = tabs();
     if (!list.some(t => t[0] === S.tab)) S.tab = list[0][0];
@@ -581,7 +584,7 @@ async function roleAction(path, body) {
   $("roleinfo").textContent = "";
   try { await api("/api/roles/" + path, {actor: S.me.id, ...body}); }
   catch (e) { S.tab === "roles" ? $("roleinfo").textContent = e.message : flash(e.message); }
-  await refresh();
+  await refresh(true);
 }
 
 // ---- changes -------------------------------------------------------------------------------
@@ -730,7 +733,7 @@ document.addEventListener("change", e => {
     $("reset").hidden = false;
     $("reset").onclick = async () => {
       await api("/api/demo/reset", {}); $("result").innerHTML = ""; $("newinfo").textContent = "";
-      if (S.me) await refresh();
+      if (S.me) await refresh(true);
     };
   }
   $("switch").onclick = showStart;

@@ -288,6 +288,9 @@ Stated plainly, so nobody has to find it:
   to an HR record.
 - **Storage is local.** The audit log is a file and paused conversations are in SQLite. Production needs a
   database with encryption at rest, retention periods and erasure on request.
+- **The public demo keeps the company in memory.** Its host can start a second instance with its own copy, so
+  two people using it at the same moment may see different states. The page sends one request at a time to stay
+  on one instance; the real fix is the database above.
 - **Tokens between the agents are static.** The agent card already declares bearer authentication; production
   needs short-lived tokens issued per agent.
 - **The People agent does not yet check who a caller acts for.** Any caller with the read scope can read any

@@ -10,7 +10,8 @@ json() { "$PYTHON" -c "import sys, json; d = json.load(sys.stdin); print($1)" | 
 post() { curl -fsS -X POST "$BASE$1" -H "Content-Type: application/json" -d "$2"; }
 expect() { [ "$1" = "$2" ] || { echo "FAIL: $3: expected '$2', got '$1'"; exit 1; }; echo "ok   $3"; }
 
-expect "$(curl -fsS "$BASE/api/people" | json "d['team'], len(d['people'])")" "PAY 8" "the team comes from the People agent over A2A"
+expect "$(curl -fsS "$BASE/api/people" | json "len([p for p in d['people'] if p['team'] == 'PAY']), [p['level'] for p in d['people']].count('executive')")" \
+       "8 3" "teams and leadership come from the People agent over A2A"
 
 OVERVIEW="$(curl -fsS "$BASE/api/overview?actor=E001")"
 expect "$(echo "$OVERVIEW" | json "[f['kind'] for f in d['findings']]")" "['assigned_while_absent']" "the planted problem is found"
@@ -30,5 +31,14 @@ post /api/roles/define '{"actor": "E001", "name": "tech-lead", "rights": ["issue
 post /api/roles/grant '{"actor": "E001", "employee_id": "E003", "role": "tech-lead"}' > /dev/null
 expect "$(curl -fsS "$BASE/api/roles?actor=E003" | json "'issues.assign' in d['mine']")" "True" "a role given by the manager takes effect"
 
-expect "$(curl -fsS "$BASE/api/audit" | json "d['intact'], d['total'] >= 4")" "True True" "everything above is in an intact audit chain"
+KEY2="$(echo "$OVERVIEW" | json "d['backlog'][0]")"
+expect "$(post /api/issues/assign "{\"actor\": \"E004\", \"issue_key\": \"$KEY2\", \"assignee_id\": \"E004\"}" | json "d['ok']")" "True" "an engineer takes unowned work with a button"
+expect "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/issues/move" -H 'Content-Type: application/json' \
+          -d "{\"actor\": \"E005\", \"issue_key\": \"$KEY2\", \"status\": \"In Review\"}")" "403" "a colleague cannot move it"
+
+expect "$(curl -fsS "$BASE/api/company?actor=E149" | json "len(d['teams'])")" "5" "leadership sees every team"
+expect "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/company?actor=E001")" "403" "a manager's view ends at the team"
+expect "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/audit?actor=E003")" "403" "an engineer cannot read the audit log"
+
+expect "$(curl -fsS "$BASE/api/audit?actor=E001" | json "d['intact'], d['total'] >= 5")" "True True" "everything above is in an intact audit chain"
 echo "all checks passed"

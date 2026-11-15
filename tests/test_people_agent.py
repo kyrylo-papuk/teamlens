@@ -51,6 +51,8 @@ async def test_answers_match_the_hrm_and_carry_no_restricted_data():
         assert await remote.person(AWAY) == await local.person(AWAY)
         assert await remote.person("E999") is None
         assert await remote.availability(ids) == await local.availability(ids)
+        leaders = await remote.department("Leadership")
+        assert leaders == await local.department("Leadership") and len(leaders) == 3 and not any(p.team for p in leaders)
 
         raw = await remote._lookup(skill="availability", employee_ids=[AWAY], start=str(C.sprint_start), end=str(C.sprint_end))
         text = str(raw) + str(await remote._lookup(skill="team", team="PAY"))
