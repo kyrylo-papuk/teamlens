@@ -119,8 +119,9 @@ class ToolFailure(Exception):
 
 class Toolbox:
     def __init__(self, jira: Client, people: People, today: date, access: Access | None = None,
-                 finder: Finder | None = None, tracing: Tracing | None = None) -> None:
+                 finder: Finder | None = None, tracing: Tracing | None = None, teams: list[str] | None = None) -> None:
         self._jira, self._people, self._today = jira, people, today
+        self.teams = teams or []  # every team there is, for people who see all of them
         self.tracing = tracing or Tracing()
         self.finder = finder or Finder()  # words only unless an embedder is passed in
         self.access = access or Access()  # without a store: the role each HR record implies
@@ -178,6 +179,21 @@ class Toolbox:
         return World(actor=actor, team=team, rights=rights, overview=build(members, availability, issues, self._today),
                      issues={i.key: i for i in issues})
 
+    async def _views(self, actor_id: str) -> list[World]:
+        """The teams a question is about: the person's own, or every team for someone who belongs to none
+        and has the right to see them all."""
+        own = await self.world(actor_id)
+        if own.team is None and "company.view" in own.rights:
+            return [await self.world(actor_id, team) for team in self.teams]
+        return [own]
+
+    async def _readable(self, actor_id: str) -> set[str]:
+        """Teams whose issues this person may read: their own, and any other where a role lets them look."""
+        actor = await self._people.person(actor_id)
+        if actor is None:
+            raise ToolFailure(f"Unknown employee {actor_id}.")
+        return {t for t in {actor.team, *self.teams} if t and "overview.view" in self.access.rights(actor, t)}
+
     async def run(self, name: str, arguments: dict, actor_id: str) -> str:
         """Run a read tool for the model and return compact text. Raises ToolFailure with a readable reason."""
         with self.tracing.observe(name, "tool", input=arguments) as span:
@@ -191,20 +207,18 @@ class Toolbox:
 
     async def _run(self, name: str, arguments: dict, actor_id: str) -> str:
         if name == "team_overview":
-            overview = (await self.world(actor_id)).overview
-            people = [{"id": x.employee_id, "name": x.name, "role": x.role, "open_issues": x.open_issues,
-                       "sprint_points": x.sprint_points, "capacity_points": x.capacity_points, "load": x.load,
-                       "status": "left the company" if not x.availability.active
-                       else "available" if x.availability.available_today
-                       else f"away until {x.availability.unavailable_until}"} for x in overview.loads]
-            findings = [{"kind": f.kind, "employee_id": f.employee_id, "issues": f.issue_keys, "detail": f.detail}
-                        for f in overview.findings]
-            return json.dumps({"today": str(overview.today), "people": people, "findings": findings}, ensure_ascii=False)
+            views = await self._views(actor_id)
+            if len(views) == 1:
+                return json.dumps(_seen(views[0].overview), ensure_ascii=False)
+            return json.dumps({"teams": [{"team": w.team, **_seen(w.overview)} for w in views]}, ensure_ascii=False)
         if name == SIMILAR_TOOL["name"]:
             found = self.similar(arguments["text"], await self.world(actor_id))
             return json.dumps({"possible_duplicates": [m.model_dump() for m in found]}, ensure_ascii=False)
         if name == FORECAST_TOOL["name"]:
-            return self.forecast(await self.world(actor_id)).model_dump_json()
+            views = await self._views(actor_id)
+            if len(views) == 1:
+                return self.forecast(views[0]).model_dump_json()
+            return json.dumps({"teams": [{"team": w.team, **self.forecast(w).model_dump()} for w in views]}, ensure_ascii=False)
         if name == PEOPLE_TOOL["name"] and hasattr(self._people, "ask"):
             try:
                 return await self._people.ask(arguments["question"])
@@ -212,12 +226,20 @@ class Toolbox:
                 raise ToolFailure(f"The People agent is unavailable: {exc}") from exc
         if name not in {t["name"] for t in await self.definitions()} or name == PLAN_TOOL["name"]:
             raise ToolFailure(f"Tool '{name}' is not available. To change Jira, use propose_plan.")
+        # Jira would answer for any project. The model reads only what the person it works for may see.
+        readable = await self._readable(actor_id)
+        other = f"That belongs to another team; this person may read the issues of: {', '.join(sorted(readable)) or 'no team'}."
+        if arguments.get("project") and arguments["project"] not in readable:
+            raise ToolFailure(other)
         data = await self._call_jira(name, arguments)
         if isinstance(data, list):
+            data = [i for i in data if i["project"] in readable]
             rows = [_brief(i) for i in data[:MAX_ROWS]]
             more = len(data) - len(rows)
             return json.dumps({"issues": rows, **({"not_shown": more, "hint": "Narrow the filters."} if more else {})},
                               ensure_ascii=False)
+        if "key" in data and data["project"] not in readable:
+            raise ToolFailure(other)
         return json.dumps(_brief(data) if "key" in data else data, ensure_ascii=False)
 
     async def create_in_sprint(self, team: str, summary: str, story_points: int) -> Issue:
@@ -248,6 +270,18 @@ class Toolbox:
         created = await self._call_jira("create_issue", {"project": actor.team, "summary": step.summary})
         await self._call_jira("add_comment", {"key": created["key"], "text": note})
         return f"{created['key']} created: {step.summary}"
+
+
+def _seen(overview) -> dict:
+    """A team as the model sees it: people with load and whether they are in, and the problems found."""
+    people = [{"id": x.employee_id, "name": x.name, "role": x.role, "open_issues": x.open_issues,
+               "sprint_points": x.sprint_points, "capacity_points": x.capacity_points, "load": x.load,
+               "status": "left the company" if not x.availability.active
+               else "available" if x.availability.available_today
+               else f"away until {x.availability.unavailable_until}"} for x in overview.loads]
+    findings = [{"kind": f.kind, "employee_id": f.employee_id, "issues": f.issue_keys, "detail": f.detail}
+                for f in overview.findings]
+    return {"today": str(overview.today), "people": people, "findings": findings}
 
 
 def _brief(issue: dict) -> dict:

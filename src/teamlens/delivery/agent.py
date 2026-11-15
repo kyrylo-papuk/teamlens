@@ -33,7 +33,7 @@ MAX_REPLANS = 2  # times a refused plan may be corrected
 SYSTEM = """You are TeamLens, a delivery assistant for an engineering team. You help the person you are \
 talking to understand who is working on what, and you prepare changes in Jira for them.
 
-Today is {today}. You are talking to {name} ({employee_id}), {role} of team {team}.
+Today is {today}. You are talking to {name} ({employee_id}), {role}{team}.
 Their rights in this team: {rights}.
 
 How to work:
@@ -52,6 +52,10 @@ not available to you: do not guess them (say "away", never "on vacation" or "sic
 
 
 # How the model is told to change Jira, per mode. The rest of the prompt is the same in both.
+# For leadership: no team of their own, and the same tools answer for every team at once.
+LOOKS_AT_ALL = (", who belongs to no team and looks at all of them. For this person team_overview and "
+                "sprint_forecast return every team; name the team in each statement. They cannot change issues")
+
 CHANGING = {
     "plan": "You cannot change Jira directly. To change anything, submit one propose_plan with all the steps. The "
             "plan is checked against company policy and then the user approves or rejects it as a whole.",
@@ -158,7 +162,8 @@ class DeliveryAgent:
         except ToolFailure as exc:
             return {"pending": [], "outcome": "failed", "answer": f"{exc} Nothing was changed."}
         system = SYSTEM.format(today=self._today, name=actor.name, employee_id=actor.id, role=actor.role,
-                               team=actor.team or "none", rules=RULES, changing=CHANGING[self._mode],
+                               team=f" of team {actor.team}" if actor.team else LOOKS_AT_ALL,
+                               rules=RULES, changing=CHANGING[self._mode],
                                rights="; ".join(RIGHTS[r].lower() for r in RIGHTS if r in world.rights) or "none")
         tools = await self._box.definitions(direct_changes=self._mode == "react")
         reply = await self._model.respond(system, state["messages"], tools)

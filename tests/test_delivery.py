@@ -1,13 +1,14 @@
 import json
 from contextlib import asynccontextmanager
 
+import pytest
 from mcp import Client
 
 from teamlens.delivery.agent import DeliveryAgent
 from teamlens.delivery.audit import AuditLog
 from teamlens.delivery.model import Reply, ScriptedModel, call, say
 from teamlens.delivery.policy import Step, check
-from teamlens.delivery.tools import Toolbox
+from teamlens.delivery.tools import Toolbox, ToolFailure
 from teamlens.hrm import Hrm
 from teamlens.jira import FakeJira
 from teamlens.mcp_servers import jira_server
@@ -26,7 +27,7 @@ async def env(tmp_path):
     jira = FakeJira(C.issues, C.today)
     people = LocalPeople(Hrm(C.employees, C.absences), C.today, C.sprint_start, C.sprint_end)
     async with Client(jira_server(jira)) as client:
-        box = Toolbox(client, people, C.today)
+        box = Toolbox(client, people, C.today, teams=["PAY", "LED", "KYC", "MOB", "PLT"])
         audit = AuditLog(tmp_path / "audit.jsonl")
 
         def agent(*replies):
@@ -274,3 +275,33 @@ async def test_react_mode_refuses_and_rejects_without_changing_anything(tmp_path
         refused, rejected = model.seen[1][-1]["content"]
         assert refused["is_error"] and "Only the person who did the work" in refused["content"]
         assert rejected["is_error"] and "rejected" in rejected["content"]
+
+
+async def test_leadership_gets_every_team_from_the_same_tools_and_changes_no_issue(tmp_path):
+    cto = next(e.id for e in C.employees if e.role == "Chief Technology Officer")
+    async with env(tmp_path) as (jira, box, _, agent):
+        seen = json.loads(await box.run("team_overview", {}, cto))
+        assert [t["team"] for t in seen["teams"]] == ["PAY", "LED", "KYC", "MOB", "PLT"]
+        assert {f["kind"] for t in seen["teams"] for f in t["findings"]} >= {"assigned_while_absent", "overloaded"}
+        assert "salary" not in json.dumps(seen) and "sick" not in json.dumps(seen)  # a wider view, the same data class
+        assert len(json.loads(await box.run("sprint_forecast", {}, cto))["teams"]) == 5
+        assert "people" in json.loads(await box.run("team_overview", {}, MANAGER))  # a manager still gets one team
+
+        a, model = agent(plan({"tool": "assign_issue", "issue_key": AWAY_ISSUE, "assignee_id": FREE}), say("That is the manager's call."))
+        result = await a.ask(cto, "Move Anton's work", "t1")
+        assert result.outcome == "answered" and (await jira.get(AWAY_ISSUE)).assignee_id == AWAY
+        assert "not a member of an engineering team" in json.dumps(model.seen[1][-1]["content"], default=str)  # what the model was told
+
+
+async def test_the_model_reads_only_issues_of_teams_the_person_may_see(tmp_path):
+    cto = next(e.id for e in C.employees if e.role == "Chief Technology Officer")
+    async with env(tmp_path) as (_, box, _, _):
+        mine = json.loads(await box.run("search_issues", {"status": "In Progress"}, MANAGER))  # no project named
+        assert mine["issues"] and all(i["key"].startswith("PAY-") for i in mine["issues"])
+        with pytest.raises(ToolFailure, match="another team"):
+            await box.run("search_issues", {"project": "KYC"}, MANAGER)
+        with pytest.raises(ToolFailure, match="another team"):
+            await box.run("get_issue", {"key": "KYC-1"}, MANAGER)
+        assert json.loads(await box.run("get_issue", {"key": "KYC-1"}, cto))["key"] == "KYC-1"  # leadership may
+        everywhere = json.loads(await box.run("search_issues", {"status": "In Review"}, cto))
+        assert len({i["key"].split("-")[0] for i in everywhere["issues"]}) > 1
