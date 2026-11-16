@@ -413,6 +413,9 @@ async function enter(id) {
   $("digest").hidden = !me.team;
   $("result").innerHTML = ""; $("text").value = ""; thread = null;
   S.tab = S.rights.has("company.view") ? "company" : me.level === "engineer" ? "mine" : "team";
+  // Nothing of the person who was here before stays on screen while this person's data loads.
+  $("tabs").innerHTML = "";
+  for (const v of document.querySelectorAll(".view")) v.hidden = true;
   await refresh();
 }
 
