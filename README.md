@@ -15,6 +15,48 @@ was measured.
 
 ![A manager's screen: forecast, what needs attention, load per person, and a plan from the assistant waiting for approval](docs/screenshots/team.png)
 
+## Jira through mcp-atlassian
+
+A real Jira is reached through [mcp-atlassian](https://github.com/sooperset/mcp-atlassian), the open-source MCP
+server for Atlassian, and not through a client written for this project. One setting turns it on
+(`TEAMLENS_JIRA_MCP`: the command that starts the server, or the URL of a running one). In the compose file for
+a real Jira the server is its own container and the only one that holds the Jira token.
+
+That server is built to offer a lot: 63 Jira tools, and by default eleven fields per issue with a person's name,
+e-mail and avatar inside. An agent should get as little as its job needs, so the path is narrowed at every step:
+
+| Step | What is cut | Where |
+|---|---|---|
+| Tools of the server | 12 of 63 exist at all (`ENABLED_TOOLS`); deleting an issue is not among them | `jira_atlassian.py`: `TOOLS` |
+| Projects | every search stays inside one project (`JIRA_PROJECTS_FILTER`) | `server_env` |
+| Fields asked for | each read names 8 fields; nothing else is fetched | `FIELDS` |
+| Fields kept | the answer becomes an `Issue` of 10 plain values; names, e-mails, avatars and links stop here | `AtlassianJira._issue` |
+| What the model gets | read tools only, 8 values per issue, at most 40 issues, only the teams this person may see | `delivery/tools.py` |
+
+The same 21 issues of a real project, as JSON text, measured at each step (`python -m teamlens.live weight`):
+
+| Step | Characters | Per issue | Share |
+|---|---|---|---|
+| Jira REST API, all fields | 141,243 | 6,725 | 100% |
+| mcp-atlassian, its default fields | 20,941 | 997 | 14.8% |
+| mcp-atlassian, the fields TeamLens names | 16,642 | 792 | 11.8% |
+| TeamLens `Issue`, after the adapter | 4,908 | 233 | 3.5% |
+| what the model is shown | 3,879 | 184 | 2.7% |
+
+Naming the fields helps less than it looks, because the server still wraps each person in a name and an avatar
+link. The larger cut is the adapter, which keeps an account id and drops the rest. That is why the filter is in
+two places and not only in the `fields` argument.
+
+**One tracker, not two.** A common design gives people Jira and gives agents a second, faster store (Linear, or
+a local copy behind MCP) that is kept in step with it. It solves a real problem: Jira is slow, limits request
+rates, and fills up with whatever agents write. It also costs a synchronisation that can be wrong, and then a
+person and an agent see two different states of the same issue. This project has one agent that reads a few
+dozen issues per question and changes nothing without a person's approval, so the field filter above is enough
+and Jira stays the only source. The second store starts to pay when many agents poll the tracker at once, when
+they write intermediate work that people should not see, or when Jira's rate limits are hit. The tracker is one
+interface with six methods (`jira.py`), implemented three times already (in memory, REST, mcp-atlassian); a
+Linear or cached implementation is a fourth class and no change to the agent, the policy or the page.
+
 ## What it does
 
 - **Who works on what.** Load against capacity per person, from Jira issues and HR availability, and the
@@ -72,7 +114,8 @@ flowchart LR
     agent -->|proposed plan| policy{{Policy<br/>plain code}}
     policy -->|allowed steps| approve[/person approves/]
     approve -->|write tools, MCP| jira_mcp
-    jira_mcp --> jira[(Jira Cloud)]
+    jira_mcp -->|12 of its 63 tools, named fields| atlassian[mcp-atlassian]
+    atlassian --> jira[(Jira Cloud)]
     agent <-->|A2A + bearer token| people[People agent<br/>Microsoft Agent Framework]
     people -->|MCP| hrm[(HRM)]
     policy -.-> audit[(Audit log<br/>hash-chained)]
@@ -219,7 +262,7 @@ to the host. Without a model key everything that is plain code works and the age
 ```bash
 python -m venv .venv && .venv/Scripts/activate        # or: source .venv/bin/activate
 pip install -e ".[dev]"
-pytest -q                                             # 101 tests, no keys, no network
+pytest -q                                             # 107 tests, no keys, no network
 TEAMLENS_FAKE=1 python -m teamlens.web                # the page on the fictional company
 ```
 
@@ -230,6 +273,15 @@ token, then:
 python -m teamlens.live seed        # fills an empty project with one team's sprint and starts it
 python -m teamlens.web              # http://localhost:8000
 python -m teamlens.delivery "Who is at risk this sprint and why?"
+```
+
+That talks to Jira's REST API directly. **Through mcp-atlassian**, set `TEAMLENS_JIRA_MCP` in `.env` to the
+command that starts the server (`uvx mcp-atlassian`) and run the same commands, or start both as containers:
+
+```bash
+docker compose -f docker-compose.jira.yml up --build      # the server and the app; only the server holds the token
+python -m teamlens.live weight                            # the table of sizes above, from your own project
+TEAMLENS_TEST_JIRA_MCP=1 pytest -k real_jira_through      # creates, moves and deletes one issue through the server
 ```
 
 **A public demo**: import the repository on Vercel (the entrypoint is `app.py`) or use `render.yaml` on Render;
@@ -270,6 +322,7 @@ src/teamlens/
   staffing.py      who is in which team, and creating a team
   hrm.py           the only module that reads restricted HR fields
   jira.py, jira_cloud.py, mcp_servers.py     Jira behind one interface, in memory or Cloud, exposed over MCP
+  jira_atlassian.py                          the same interface on top of the mcp-atlassian server
   overview.py      who works on what, problems found
   forecast.py, similar.py, triage/           the three measured features
   tracing.py       Langfuse, with names replaced by employee ids before export
@@ -305,6 +358,6 @@ More in [docs/DATA.md](docs/DATA.md#not-built-yet).
 
 ## Stack
 
-Python 3.11+, asyncio · LangGraph · Microsoft Agent Framework · MCP · A2A · Anthropic SDK (Claude Haiku 5.5;
+Python 3.11+, asyncio · LangGraph · Microsoft Agent Framework · MCP · mcp-atlassian · A2A · Anthropic SDK (Claude Haiku 5.5;
 Sonnet 5.5 as judge) · Langfuse · DeepEval · SetFit and sentence-transformers · FastAPI · Docker Compose ·
 GitHub Actions

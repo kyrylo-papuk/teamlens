@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     jira_api_token: str = ""
     jira_project_key: str = "PAY"
     jira_team_key: str = "PAY"  # HRM team that works in this Jira project
+    # Reach Jira through mcp-atlassian instead of calling its REST API: the URL of a running server, or the
+    # command that starts one over stdio, for example "uvx mcp-atlassian". See jira_atlassian.py.
+    teamlens_jira_mcp: str = ""
     langfuse_public_key: str = ""  # tracing is off unless both keys are set
     langfuse_secret_key: str = ""
     langfuse_host: str = ""

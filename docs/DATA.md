@@ -21,6 +21,7 @@ record at that line: `Availability` carries dates, and no type on the Delivery s
 
 | Rule | Enforced by | Proved by |
 |---|---|---|
+| From Jira only the fields an issue needs are fetched, and a person arrives as an account id: no name, e-mail or avatar | `jira_atlassian.py`: `FIELDS`, `_issue`; the server is started with 12 of its tools and one project | `test_every_read_names_its_fields_and_only_an_issue_comes_out`, `test_the_server_is_started_with_the_least_it_needs` |
 | Restricted fields never leave the People side | `hrm.py` returns only `Person` and `Availability`; neither type has the fields | `test_minimised_views_carry_no_restricted_fields` |
 | No agent-to-agent request can return Restricted data | the People agent has no skill for it; unknown requests are rejected | `test_there_is_no_skill_for_restricted_data` |
 | The People agent's own model cannot read Restricted data | its two tools wrap only the minimised lookups; the HRM tool that returns reasons is not wrapped | `people_agent/advisor.py` |

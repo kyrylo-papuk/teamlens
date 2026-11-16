@@ -1,0 +1,60 @@
+# A real Jira Cloud project, reached through mcp-atlassian (https://github.com/sooperset/mcp-atlassian), the
+# open-source MCP server for Atlassian. It runs as its own service and is the only container that holds the Jira
+# token: the web app speaks MCP to it and is never given the token.
+#
+#   python -m teamlens.live seed                                  once: fills the project, writes data/seed/jira_users.json
+#   docker compose -f docker-compose.jira.yml up --build          http://localhost:8000
+#
+# Needs JIRA_BASE_URL, JIRA_EMAIL, JIRA_API_TOKEN and JIRA_PROJECT_KEY in .env; ANTHROPIC_API_KEY enables the agent.
+
+services:
+  mcp-atlassian:
+    image: ghcr.io/sooperset/mcp-atlassian:latest
+    restart: unless-stopped
+    command: ["--transport", "streamable-http", "--port", "9000", "--path", "/mcp"]
+    environment:
+      JIRA_URL: ${JIRA_BASE_URL}
+      JIRA_USERNAME: ${JIRA_EMAIL}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN}
+      # How little of Jira this server offers. The tool list is TOOLS in src/teamlens/jira_atlassian.py; a test
+      # keeps the two in step.
+      JIRA_PROJECTS_FILTER: ${JIRA_PROJECT_KEY:-PAY}
+      TOOLSETS: all
+      ENABLED_TOOLS: jira_search,jira_get_issue,jira_search_fields,jira_get_project_issue_types,jira_get_transitions,jira_assign_issue,jira_transition_issue,jira_add_comment,jira_create_issue,jira_get_agile_boards,jira_get_sprints_from_board,jira_add_issues_to_sprint
+      # Over HTTP the server expects each caller to bring its own Jira identity. Here there is one caller, on a
+      # network nothing else can reach, so it may use the identity above.
+      ALLOW_GLOBAL_CRED_FALLBACK: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 9000), 2)"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    # Not published: only the web app may talk to it.
+
+  web:
+    build: .
+    restart: unless-stopped
+    environment:
+      TEAMLENS_JIRA_MCP: http://mcp-atlassian:9000/mcp
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-PAY}
+      JIRA_TEAM_KEY: ${JIRA_TEAM_KEY:-PAY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/seed:/app/data/seed:ro  # which employee is which Jira account
+      - teamlens-jira-data:/app/data   # audit log, roles, team settings, paused conversations
+    depends_on:
+      mcp-atlassian:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/api/people')"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+volumes:
+  teamlens-jira-data:

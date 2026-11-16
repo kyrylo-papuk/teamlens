@@ -2,6 +2,7 @@
 
   python -m teamlens.live seed      fill the Jira project with one team's sprint and start it
   python -m teamlens.live overview  who works on what, read from the real Jira
+  python -m teamlens.live weight    how much of what Jira returns is left at each step on the way to the model
 
 Jira Cloud hides e-mail addresses of other accounts, so people are joined to Jira accounts
 through a mapping file written by ``seed`` (employee id -> Jira account id).
@@ -12,11 +13,13 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, time
 from pathlib import Path
 
 from teamlens.config import Settings
 from teamlens.hrm import Hrm
+from teamlens.jira_atlassian import AtlassianJira, connect
 from teamlens.jira_cloud import JiraCloud
 from teamlens.overview import Overview, build, show
 from teamlens.seed import Company, Issue, generate
@@ -28,6 +31,21 @@ EXTRA_LOAD = ["Reconcile failed payouts for October", "Add retry policy to payou
 
 def company() -> Company:
     return generate(today=date.today())
+
+
+@asynccontextmanager
+async def jira(settings: Settings, users: dict[str, str] | None = None):
+    """The real Jira behind the app's interface: through the mcp-atlassian server when TEAMLENS_JIRA_MCP names
+    one, otherwise straight over Jira's REST API."""
+    if settings.teamlens_jira_mcp:
+        async with connect(settings) as client:
+            yield AtlassianJira(client, settings, users)
+    else:
+        direct = JiraCloud(settings, users)
+        try:
+            yield direct
+        finally:
+            await direct.aclose()
 
 
 def load_users() -> dict[str, str]:
@@ -87,18 +105,45 @@ async def overview() -> Overview:
     s = Settings()
     c = company()
     users = load_users()
-    jira = JiraCloud(s, users)
     hrm = Hrm(c.employees, c.absences)
     # Only people who have an account on this Jira site; the free plan caps it at ten.
     people = [p for p in hrm.people(s.jira_team_key) if p.id in users]
     availability = {p.id: hrm.availability(p.id, c.sprint_start, c.sprint_end, c.today) for p in people}
-    issues = await jira.search()
-    await jira.aclose()
+    async with jira(s, users) as tracker:
+        issues = await tracker.search()
     return build(people, availability, issues, c.today)
+
+
+async def weight() -> None:
+    """The same issues of the project, measured at each step from Jira to the model. Needs TEAMLENS_JIRA_MCP."""
+    from teamlens.delivery.tools import MAX_ROWS, _brief
+
+    s = Settings()
+    query = f'project = "{s.jira_project_key}" ORDER BY key'
+    direct = JiraCloud(s)
+    raw = await direct._call("POST", "/rest/api/3/search/jql", json={"jql": query, "fields": ["*all"], "maxResults": 50})
+    await direct.aclose()
+    async with connect(s) as client:
+        tracker = AtlassianJira(client, s, load_users())
+        issues = await tracker.search()
+        plain = await tracker._call("jira_search", jql=query, limit=50)
+        named = await tracker._call("jira_search", jql=query, limit=50, fields=tracker._fields)
+    ours = [i.model_dump(mode="json") for i in issues[:50]]
+    steps = [("Jira REST API, all fields", raw["issues"]),
+             ("mcp-atlassian, its default fields", plain["issues"]),
+             ("mcp-atlassian, the fields TeamLens names", named["issues"]),
+             ("TeamLens Issue, after the adapter", ours),
+             ("what the model is shown", [_brief(i) for i in ours[:MAX_ROWS]])]
+    size = [len(json.dumps(rows, ensure_ascii=False)) for _, rows in steps]
+    print(f"{len(ours)} issues of project {s.jira_project_key}, as JSON text")
+    for (name, rows), n in zip(steps, size):
+        print(f"  {name:42} {n:>8,} chars  {n // len(rows):>6,} per issue  {100 * n / size[0]:5.1f}%")
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["seed"]:
         asyncio.run(seed())
+    elif sys.argv[1:] == ["weight"]:
+        asyncio.run(weight())
     else:
         show(asyncio.run(overview()))

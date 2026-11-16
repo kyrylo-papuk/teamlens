@@ -26,7 +26,6 @@ from teamlens.delivery.model import ClaudeModel
 from teamlens.delivery.tools import Toolbox
 from teamlens.hrm import Hrm
 from teamlens.jira import FakeJira
-from teamlens.jira_cloud import JiraCloud
 from teamlens.mcp_servers import jira_server
 from teamlens.people import A2APeople, LocalPeople
 from teamlens.seed import generate
@@ -47,7 +46,8 @@ async def main() -> None:
         jira = FakeJira(c.issues, c.today)
     else:
         c, users = live.company(), live.load_users()
-        jira = JiraCloud(s, users)
+        opened = live.jira(s, users)
+        jira = await opened.__aenter__()
     only, http = (set(users) if users else None), None
     if args.a2a:
         http = httpx.AsyncClient(base_url=s.people_agent_url, timeout=120,
@@ -76,7 +76,7 @@ async def main() -> None:
         print(f"\n({u.calls} model calls, {u.input + u.cache_read + u.cache_write} in / {u.output} out tokens, "
               f"${u.usd:.4f}; audit chain {'intact' if audit.verify() is None else 'BROKEN'})")
     if not args.fake:
-        await jira.aclose()
+        await opened.__aexit__(None, None, None)
     if http:
         await http.aclose()
 

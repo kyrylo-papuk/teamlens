@@ -41,7 +41,6 @@ from teamlens.delivery.policy import Step, check
 from teamlens.delivery.tools import Toolbox, ToolFailure
 from teamlens.hrm import Hrm
 from teamlens.jira import FakeJira
-from teamlens.jira_cloud import JiraCloud
 from teamlens.mcp_servers import jira_server
 from teamlens.people import A2APeople, LocalPeople
 from teamlens.seed import LEADERSHIP, TEAMS, generate
@@ -160,8 +159,7 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             c, users = generate(), None
             jira = FakeJira(c.issues, c.today)
         else:
-            c, users = live.company(), live.load_users()
-            jira = JiraCloud(s, users)
+            c, users, jira = live.company(), live.load_users(), None
         only, http, hrm = (set(users) if users else None), None, None
         if os.environ.get("TEAMLENS_A2A") == "1":
             http = httpx.AsyncClient(base_url=s.people_agent_url, timeout=120,
@@ -172,6 +170,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             people = LocalPeople(hrm, c.today, c.sprint_start, c.sprint_end, only=only)
         app.state.hrm = hrm if fake and http is None else None  # the demo's own HR system, when it lives in this process
         async with AsyncExitStack() as stack:
+            if jira is None:
+                jira = await stack.enter_async_context(live.jira(s, users))
             client = await stack.enter_async_context(Client(jira_server(jira)))
             app.state.team = s.jira_team_key
             # The demo company has every team in Jira; a real site is connected one project at a time.
@@ -203,7 +203,8 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
                 saved.parent.mkdir(parents=True, exist_ok=True)
                 checkpointer = await stack.enter_async_context(AsyncSqliteSaver.from_conn_string(str(saved)))
             app.state.agent = DeliveryAgent(app.state.model, app.state.box, app.state.audit, c.today, checkpointer)
-            app.state.source = "in-memory demo data" if fake else "Jira Cloud"
+            real = "Jira Cloud through mcp-atlassian" if s.teamlens_jira_mcp else "Jira Cloud"
+            app.state.source = "in-memory demo data" if fake else real
             settings_path = data / "team_settings.json"
             # Tests pass their own classifier or none; a real run uses the trained model if there is one.
             sorter = triage or (None if model is not None else load_triage(s.anthropic_api_key))
@@ -230,8 +231,6 @@ def create_app(model: Model | None = None, fake: bool | None = None, audit_path:
             tracing.flush()
         if http:
             await http.aclose()
-        if not fake:
-            await jira.aclose()
 
     app = FastAPI(title="TeamLens", lifespan=lifespan)
     budget = DailyBudget(s.teamlens_daily_model_requests if daily_model_requests is None else daily_model_requests)
